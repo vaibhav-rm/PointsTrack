@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Mail, Lock, User, Building2 } from 'lucide-react'
+import { Mail, Lock, User, Building2, Briefcase, Calendar, FileText, Users } from 'lucide-react'
 
 import { auth, db } from '@/lib/firebase'
 import { createUserWithEmailAndPassword } from 'firebase/auth'
 import { doc, setDoc } from 'firebase/firestore'
 import toast from 'react-hot-toast'
+import { COLLEGES } from '@/lib/colleges'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -17,12 +18,16 @@ export default function RegisterPage() {
   const [formData, setFormData] = useState({
     fullName: '',
     companyName: '',
+    college: '',
+    bio: '',
+    establishedDate: '',
+    coreTeam: '',
     email: '',
     password: '',
     confirmPassword: ''
   })
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
   }
@@ -43,7 +48,10 @@ export default function RegisterPage() {
       await setDoc(doc(db, "organizers", creds.user.uid), {
         email: formData.email,
         clubName: formData.companyName,
-        college: formData.companyName, // Can't split in UI template yet, assuming same
+        college: formData.college,
+        bio: formData.bio,
+        establishedDate: formData.establishedDate,
+        coreTeam: formData.coreTeam,
         role: "organizer",
         createdAt: new Date().toISOString()
       })
@@ -72,7 +80,7 @@ export default function RegisterPage() {
       <form onSubmit={handleSubmit} className="space-y-4 mb-6">
         {/* Full Name */}
         <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Full Name</label>
+          <label className="block text-sm font-medium text-slate-200 mb-2">Full Name <span className="text-red-400">*</span></label>
           <div className="relative">
             <User className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
             <input
@@ -87,26 +95,100 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* Company Name */}
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* Company / Club Name */}
+          <div>
+            <label className="block text-sm font-medium text-slate-200 mb-2">Club Name <span className="text-red-400">*</span></label>
+            <div className="relative">
+              <Building2 className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+              <input
+                type="text"
+                name="companyName"
+                value={formData.companyName}
+                onChange={handleChange}
+                placeholder="Tech Club"
+                className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                required
+              />
+            </div>
+          </div>
+
+          {/* College Dropdown */}
+          <div>
+            <label className="block text-sm font-medium text-slate-200 mb-2">College Affiliation <span className="text-red-400">*</span></label>
+            <div className="relative">
+              <Briefcase className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+              <select
+                name="college"
+                value={formData.college}
+                onChange={handleChange}
+                className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white focus:outline-none focus:border-cyan-500 appearance-none"
+                required
+              >
+                <option value="" disabled>Select your college</option>
+                {COLLEGES.map((college, index) => (
+                  <option key={`${college.code}-${index}`} value={college.name}>
+                    {college.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Bio */}
         <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Company/Organization</label>
+          <label className="block text-sm font-medium text-slate-200 mb-2">Club Bio</label>
           <div className="relative">
-            <Building2 className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              name="companyName"
-              value={formData.companyName}
+            <FileText className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+            <textarea
+              name="bio"
+              value={formData.bio}
               onChange={handleChange}
-              placeholder="Your Company"
-              className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-              required
+              placeholder="Tell students what your club is about..."
+              rows={2}
+              className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 resize-none"
             />
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* Established Date */}
+          <div>
+             <label className="block text-sm font-medium text-slate-200 mb-2">Established Date</label>
+             <div className="relative">
+               <Calendar className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+               <input
+                 type="date"
+                 name="establishedDate"
+                 value={formData.establishedDate}
+                 onChange={handleChange}
+                 className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+               />
+             </div>
+          </div>
+
+          {/* Core Team */}
+          <div>
+             <label className="block text-sm font-medium text-slate-200 mb-2">Core Team Members</label>
+             <div className="relative">
+               <Users className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+               <input
+                 type="text"
+                 name="coreTeam"
+                 value={formData.coreTeam}
+                 onChange={handleChange}
+                 placeholder="e.g. John (Pres), Jane (VP)"
+                 className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+               />
+             </div>
           </div>
         </div>
 
         {/* Email */}
         <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Email Address</label>
+          <label className="block text-sm font-medium text-slate-200 mb-2 mt-4 text-cyan-400">Security Credentials</label>
+          <label className="block text-sm font-medium text-slate-200 mb-2">Email Address <span className="text-red-400">*</span></label>
           <div className="relative">
             <Mail className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
             <input
@@ -121,44 +203,46 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* Password */}
-        <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Password</label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-            <input
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="••••••••"
-              className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-              required
-            />
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* Password */}
+          <div>
+            <label className="block text-sm font-medium text-slate-200 mb-2">Password <span className="text-red-400">*</span></label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+              <input
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="••••••••"
+                className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                required
+              />
+            </div>
           </div>
-        </div>
 
-        {/* Confirm Password */}
-        <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Confirm Password</label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-            <input
-              type="password"
-              name="confirmPassword"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              placeholder="••••••••"
-              className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-              required
-            />
+          {/* Confirm Password */}
+          <div>
+            <label className="block text-sm font-medium text-slate-200 mb-2">Confirm Password <span className="text-red-400">*</span></label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+              <input
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                placeholder="••••••••"
+                className="w-full pl-10 pr-4 py-2 rounded-lg glass-effect bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                required
+              />
+            </div>
           </div>
         </div>
 
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full px-6 py-2 rounded-lg font-medium transition-all duration-300 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white hover:scale-105 hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full px-6 py-3 mt-4 rounded-lg font-bold transition-all duration-300 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white hover:scale-105 hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(59,130,246,0.3)]"
         >
           {isLoading ? 'Creating Account...' : 'Create Account'}
         </button>
