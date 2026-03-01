@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 import Footer from '@/components/landing/footer'
 import { ArrowLeft, Mail } from 'lucide-react'
