@@ -16,25 +16,25 @@ export default function Footer() {
           <div>
             <h4 className="font-semibold text-white mb-4">Product</h4>
             <ul className="space-y-2 text-slate-400 text-sm">
-              <li><a href="#" className="hover:text-cyan-400 transition">Mobile App</a></li>
-              <li><a href="#" className="hover:text-cyan-400 transition">Organizer Dashboard</a></li>
-              <li><a href="#" className="hover:text-cyan-400 transition">Security</a></li>
+              <li><Link href="/mobile-app" className="hover:text-cyan-400 transition">Mobile App</Link></li>
+              <li><Link href="/login" className="hover:text-cyan-400 transition">Organizer Dashboard</Link></li>
+              <li><Link href="/security" className="hover:text-cyan-400 transition">Security</Link></li>
             </ul>
           </div>
           <div>
             <h4 className="font-semibold text-white mb-4">Company</h4>
             <ul className="space-y-2 text-slate-400 text-sm">
-              <li><a href="#" className="hover:text-cyan-400 transition">About</a></li>
-              <li><a href="#" className="hover:text-cyan-400 transition">Blog</a></li>
-              <li><a href="#" className="hover:text-cyan-400 transition">Contact</a></li>
+              <li><Link href="/about" className="hover:text-cyan-400 transition">About</Link></li>
+              <li><Link href="/blog" className="hover:text-cyan-400 transition">Blog</Link></li>
+              <li><Link href="/contact" className="hover:text-cyan-400 transition">Contact</Link></li>
             </ul>
           </div>
           <div>
             <h4 className="font-semibold text-white mb-4">Legal</h4>
             <ul className="space-y-2 text-slate-400 text-sm">
-              <li><a href="#" className="hover:text-cyan-400 transition">Privacy</a></li>
-              <li><a href="#" className="hover:text-cyan-400 transition">Terms</a></li>
-              <li><a href="#" className="hover:text-cyan-400 transition">Cookies</a></li>
+              <li><Link href="/privacy" className="hover:text-cyan-400 transition">Privacy</Link></li>
+              <li><Link href="/terms" className="hover:text-cyan-400 transition">Terms</Link></li>
+              <li><Link href="/cookies" className="hover:text-cyan-400 transition">Cookies</Link></li>
             </ul>
           </div>
         </div>

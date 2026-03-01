@@ -75,9 +75,14 @@ export default function Hero() {
             transition={{ duration: 0.8, delay: 0.3 }}
             className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center"
           >
-            <button className="px-8 py-3 rounded-xl font-bold transition-all duration-300 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/30 hover:scale-105 hover:-translate-y-1">
+            <a 
+              href="https://drive.google.com/file/d/1uoxNGTXS6XHe2g36PXi5MD_g51tm83At/view?usp=sharing" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="px-8 py-3 rounded-xl font-bold transition-all duration-300 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/30 hover:scale-105 hover:-translate-y-1"
+            >
               Download the App
-            </button>
+            </a>
             <Link href="/organizer/login" className="px-8 py-3 rounded-xl font-medium transition-all duration-300 backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 text-white hover:bg-white/20 hover:backdrop-blur-lg">
               Organizer Dashboard
             </Link>

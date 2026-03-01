@@ -48,9 +48,14 @@ export default function CTA() {
             <Link href="/organizer/register" className="px-6 py-2 rounded-lg font-medium transition-all duration-300 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white hover:scale-105 hover:-translate-y-1 text-lg">
               Register Event Organizer
             </Link>
-            <button className="px-6 py-2 rounded-lg font-medium transition-all duration-300 backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 text-foreground hover:backdrop-blur-lg text-lg">
+            <a 
+              href="https://drive.google.com/file/d/1uoxNGTXS6XHe2g36PXi5MD_g51tm83At/view?usp=sharing" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="px-6 py-2 rounded-lg font-medium transition-all duration-300 backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 text-foreground hover:backdrop-blur-lg text-lg"
+            >
               Download Student App
-            </button>
+            </a>
           </motion.div>
 
           <motion.p
