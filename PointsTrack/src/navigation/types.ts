@@ -8,6 +8,7 @@ export type AuthStackParamList = {
 
 export type AppStackParamList = {
     Dashboard: undefined;
+    RecentActivity: undefined;
     AddEvent: undefined;
     EditEvent: { event: any };
     EventDetails: { event: any };

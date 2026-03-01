@@ -174,7 +174,7 @@ const EventDetailsScreen = () => {
               <View className="flex-1">
                 <Text className="text-xs text-textSecondary dark:text-gray-400 font-pmedium mb-0.5 uppercase tracking-wider">Hosted By</Text>
                 <Text className="text-base text-textPrimary dark:text-white font-pbold leading-tight" numberOfLines={1}>
-                  {event.clubName || 'College Organizer'}
+                  {event.clubName || 'Organizer'}
                 </Text>
               </View>
               <View className="w-8 h-8 rounded-full bg-gray-50 dark:bg-gray-800 items-center justify-center">

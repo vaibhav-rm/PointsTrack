@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion'
 import { Search, Mail, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, getDoc, updateDoc, addDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
@@ -19,12 +19,66 @@ export default function AttendeesPage() {
     setProcessingId(attendeeId);
     try {
       const attendeeRef = doc(db, "attendees", attendeeId);
+      const attendeeSnap = await getDoc(attendeeRef);
+      
+      if (!attendeeSnap.exists()) {
+         throw new Error("Attendee not found");
+      }
+      
+      const attendeeData = attendeeSnap.data();
+      
+      // Update the attendee's specific registration status
       await updateDoc(attendeeRef, {
         status: newStatus,
         engagement: newEngagement
       });
       
-      // Optimistic upate
+      // If approved, actually award the points!
+      if (newStatus === 'checked-in') {
+        const pointsToAward = attendeeData.pointsAwarded || 10;
+        
+        // Fetch the original event to retain description and type
+        const originalEventRef = doc(db, "upcoming_events", attendeeData.eventId);
+        const originalEventSnap = await getDoc(originalEventRef);
+        
+        let eventType = "Points Awarded";
+        let eventDescription = `You were awarded ${pointsToAward} points for attending this event.`;
+        
+        if (originalEventSnap.exists()) {
+            const originalData = originalEventSnap.data();
+            eventType = originalData.type || eventType;
+            eventDescription = originalData.description || eventDescription;
+        }
+
+        // 1. Add to the Global `events` collection so the Mobile App instantly aggregates it!
+        await addDoc(collection(db, "events"), {
+          userId: attendeeData.attendeeUid,
+          organizerId: attendeeData.organizerId,
+          eventId: attendeeData.eventId,
+          clubName: originalEventSnap.exists() ? originalEventSnap.data().clubName || "" : "",
+          clubLogo: originalEventSnap.exists() ? originalEventSnap.data().clubLogo || "" : "",
+          title: attendeeData.event || "Activity Approved",
+          type: eventType,
+          description: eventDescription,
+          points: pointsToAward,
+          semester: 1, // Defaulting semester as standard
+          date: new Date().toISOString().split('T')[0],
+          createdAt: new Date().toISOString()
+        });
+        
+        // 2. Trigger targeted Push Notification!
+        fetch('/api/notify-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                uid: attendeeData.attendeeUid,
+                title: "Points Awarded! 🎉",
+                body: `You just received ${pointsToAward} points for ${attendeeData.event}!`
+            })
+        }).catch(err => console.error("Failed to notify user:", err));
+      }
+      
+      // Optimistic update
       setAttendees(prev => prev.map(a => 
         a.id === attendeeId ? { ...a, status: newStatus, engagement: newEngagement } : a
       ));

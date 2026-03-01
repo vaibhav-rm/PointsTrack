@@ -129,7 +129,7 @@ const EditEventScreen = () => {
         <Text className="text-xl font-pbold text-textPrimary dark:text-white">Edit Event</Text>
       </View>
       
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} className="px-6 py-4">
+      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }} className="px-6 py-4">
         <Input label="Event Title" value={title} onChangeText={setTitle} placeholder="e.g. Hackathon 2024" />
         <Input label="Event Type" value={type} onChangeText={setType} placeholder="e.g. Technical, Sports" />
         <Input label="Description" value={description} onChangeText={setDescription} placeholder="Brief description..." multiline numberOfLines={3} style={{ height: 100, textAlignVertical: 'top' }} />

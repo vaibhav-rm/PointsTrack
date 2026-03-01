@@ -50,6 +50,75 @@ export default function AnalyticsPage() {
     { label: 'Active Events', value: events.length.toString(), change: 'Live', icon: BarChart3 },
   ]
 
+  // 1. Dynamic Attendance Trend (Last 7 Days)
+  const getAttendanceTrend = () => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const trendCounts = [0, 0, 0, 0, 0, 0, 0]; // Sun - Sat
+    
+    attendees.forEach(a => {
+      if (a.checkInTimestamp) {
+        // Handle Firestore Timestamp or string dates
+        const date = a.checkInTimestamp.toDate ? a.checkInTimestamp.toDate() : new Date(a.checkInTimestamp);
+        const dayIndex = date.getDay();
+        trendCounts[dayIndex]++;
+      }
+    });
+
+    // Reorder array so today is last, and previous 6 days precede it.
+    const todayIndex = new Date().getDay();
+    const orderedTrend = [];
+    
+    // Calculate max to normalize percentages
+    const maxCount = Math.max(...trendCounts, 1); // Avoid div by 0
+    
+    for (let i = 6; i >= 0; i--) {
+      const dIndex = (todayIndex - i + 7) % 7;
+      orderedTrend.push({
+        day: days[dIndex],
+        count: trendCounts[dIndex],
+        percentage: Math.floor((trendCounts[dIndex] / maxCount) * 100)
+      });
+    }
+    return orderedTrend;
+  };
+  const trendData = getAttendanceTrend();
+
+  // 2. Dynamic Engagement Distribution
+  const getEngagementStats = () => {
+    const total = attendees.length || 1; // avoid division by zero
+    const high = attendees.filter(a => a.engagement === 'High').length;
+    const medium = attendees.filter(a => a.engagement === 'Medium').length;
+    const low = attendees.filter(a => a.engagement === 'Low' || a.engagement === 'Pending').length;
+
+    return [
+      { label: 'High', value: Math.round((high / total) * 100), color: 'bg-green-500' },
+      { label: 'Medium', value: Math.round((medium / total) * 100), color: 'bg-blue-500' },
+      { label: 'Low', value: Math.round((low / total) * 100), color: 'bg-slate-500' },
+    ];
+  };
+  const engagementData = getEngagementStats();
+
+  // 3. Dynamic Event Performance (Top 3)
+  const getPerformanceStats = () => {
+    // Create map of event ID -> Attendee Count
+    const attendanceMap: Record<string, number> = {};
+    attendees.forEach(a => {
+      if (a.status === 'checked-in') {
+         attendanceMap[a.eventId] = (attendanceMap[a.eventId] || 0) + 1;
+      }
+    });
+
+    // Map events and sort
+    const mapped = events.map(event => ({
+      event: event.title,
+      attendees: attendanceMap[event.id] || 0,
+      rating: 5.0 // Ratings not yet implemented, defaulting
+    }));
+
+    return mapped.sort((a, b) => b.attendees - a.attendees).slice(0, 5);
+  };
+  const performanceStats = getPerformanceStats();
+
   return (
     <div className="space-y-8">
       <motion.div
@@ -90,18 +159,18 @@ export default function AnalyticsPage() {
       >
         {/* Attendance Trend */}
         <div className="glass-effect rounded-xl p-6">
-          <h3 className="text-xl font-bold text-white mb-6">Attendance Trend</h3>
+          <h3 className="text-xl font-bold text-white mb-6">Attendance Trend (Past 7 Days)</h3>
           <div className="space-y-4">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day, i) => (
-              <div key={day}>
+            {trendData.map((item, i) => (
+              <div key={i}>
                 <div className="flex justify-between text-sm mb-2">
-                  <span className="text-slate-300">{day}</span>
-                  <span className="text-slate-400">{Math.floor(Math.random() * 100) + 20}%</span>
+                  <span className="text-slate-300">{item.day}</span>
+                  <span className="text-slate-400">{item.count} check-ins</span>
                 </div>
                 <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-blue-500 to-cyan-500"
-                    style={{ width: `${Math.floor(Math.random() * 100) + 20}%` }}
+                    style={{ width: `${item.percentage > 0 ? Math.max(item.percentage, 5) : 0}%` }}
                   />
                 </div>
               </div>
@@ -113,11 +182,7 @@ export default function AnalyticsPage() {
         <div className="glass-effect rounded-xl p-6">
           <h3 className="text-xl font-bold text-white mb-6">Engagement Distribution</h3>
           <div className="space-y-4">
-            {[
-              { label: 'High', value: 45, color: 'bg-green-500' },
-              { label: 'Medium', value: 35, color: 'bg-blue-500' },
-              { label: 'Low', value: 20, color: 'bg-slate-500' },
-            ].map((item) => (
+            {engagementData.map((item) => (
               <div key={item.label}>
                 <div className="flex justify-between text-sm mb-2">
                   <span className="text-slate-300">{item.label}</span>
@@ -142,13 +207,12 @@ export default function AnalyticsPage() {
         transition={{ duration: 0.6, delay: 0.5 }}
         className="backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 rounded-xl p-6"
       >
-        <h3 className="text-xl font-bold text-white mb-6">Event Performance</h3>
+        <h3 className="text-xl font-bold text-white mb-6">Top Performing Events</h3>
+        {performanceStats.length === 0 && (
+           <p className="text-slate-400 italic">No event data available yet.</p>
+        )}
         <div className="space-y-4">
-          {[
-            { event: 'Tech Conference 2024', rating: 4.8, attendees: 523 },
-            { event: 'Web Summit', rating: 4.6, attendees: 1204 },
-            { event: 'Design Workshop', rating: 4.9, attendees: 89 },
-          ].map((item, i) => (
+          {performanceStats.map((item, i) => (
             <div key={i} className="flex items-center justify-between p-4 border border-slate-800/50 rounded-lg hover:bg-slate-800/30 transition-colors">
               <div>
                 <p className="font-semibold text-white">{item.event}</p>

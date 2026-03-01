@@ -83,7 +83,7 @@ const DashboardScreen = () => {
         {/* Recent Events */}
         <View className="flex-row justify-between items-center mb-4">
           <Text className="text-xl font-pbold text-textPrimary dark:text-white">Recent Activity</Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate('RecentActivity' as any)}>
             <Text className="text-secondary font-pmedium">View All</Text>
           </TouchableOpacity>
         </View>
@@ -95,7 +95,7 @@ const DashboardScreen = () => {
           </View>
         ) : (
           <View>
-            {events.map((event) => (
+            {events.slice(0, 3).map((event) => (
               <TouchableOpacity
                 key={event.id}
                 onPress={() => navigation.navigate('EventDetails', { event })}

@@ -12,6 +12,7 @@ import { View, Platform } from 'react-native';
 import { useColorScheme } from 'nativewind';
 
 import ClubProfileScreen from '../screens/profile/ClubProfileScreen';
+import RecentActivityScreen from '../screens/dashboard/RecentActivityScreen';
 
 const Tab = createBottomTabNavigator<AppStackParamList>();
 
@@ -58,6 +59,15 @@ const AppStack = () => {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen 
+        name="RecentActivity" 
+        component={RecentActivityScreen} 
+        options={{ 
+          tabBarStyle: { display: 'none' },
+          tabBarItemStyle: { display: 'none' },
+          tabBarButton: () => null, // Hide from tab bar visually
+        }} 
+      />
       <Tab.Screen name="UpcomingEvents" component={UpcomingEventsScreen} options={{ title: 'Events' }} />
       <Tab.Screen 
         name="AddEvent" 
