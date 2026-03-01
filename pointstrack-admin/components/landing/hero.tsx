@@ -26,26 +26,26 @@ export default function Hero() {
   const textOpacity = useTransform(scrollYProgress, [0, 0.8], [1, 0.2])
 
   return (
-    <section ref={containerRef} className="relative h-[200vh] bg-slate-950 px-4">
+    <section ref={containerRef} className="relative min-h-screen lg:h-[200vh] bg-slate-950 px-4 overflow-hidden">
       {/* Background gradient orbs fixed to viewport */}
-      <div className="fixed top-20 left-1/4 w-[500px] h-[500px] bg-blue-500/20 rounded-full blur-[100px] opacity-20 pointer-events-none" />
-      <div className="fixed bottom-20 right-1/4 w-[500px] h-[500px] bg-cyan-500/20 rounded-full blur-[100px] opacity-20 pointer-events-none" />
+      <div className="absolute lg:fixed top-20 left-1/4 w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-blue-500/20 rounded-full blur-[80px] lg:blur-[100px] opacity-30 lg:opacity-20 pointer-events-none" />
+      <div className="absolute lg:fixed bottom-20 right-1/4 w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-cyan-500/20 rounded-full blur-[80px] lg:blur-[100px] opacity-30 lg:opacity-20 pointer-events-none" />
 
-      {/* Sticky container holds the viewport items while we scroll the 200vh section */}
-      <div className="sticky top-0 h-screen flex flex-col lg:flex-row items-center justify-center overflow-hidden pt-20 max-w-7xl mx-auto w-full">
+      {/* Container holds the viewport items while we scroll. Only sticky on large devices. */}
+      <div className="lg:sticky top-0 lg:h-screen flex flex-col lg:flex-row items-center justify-center pt-32 pb-16 lg:py-20 max-w-7xl mx-auto w-full relative z-10">
         
         {/* Left Side: Floating Text Hero */}
         <motion.div 
           style={{ opacity: textOpacity, y: textY }} 
-          className="relative z-20 text-center lg:text-left w-full lg:w-1/2 px-4 lg:pl-12 mt-8 lg:mt-0"
+          className="relative z-20 text-center lg:text-left w-full lg:w-1/2 px-4 lg:pl-12 mt-4 lg:mt-0"
         >
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
-            className="mb-6 lg:mx-0"
+            className="mb-4 lg:mb-6 lg:mx-0"
           >
-            <span className="inline-block text-sm font-semibold text-cyan-400 px-4 py-2 rounded-full backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 mb-4 shadow-[0_0_15px_rgba(34,211,238,0.3)]">
+            <span className="inline-block text-xs lg:text-sm font-semibold text-cyan-400 px-4 py-2 rounded-full backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 shadow-[0_0_15px_rgba(34,211,238,0.3)]">
               The Ultimate App for Engineering Students
             </span>
           </motion.div>
@@ -54,9 +54,9 @@ export default function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.1 }}
-            className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6 text-white leading-tight"
+            className="text-5xl md:text-6xl lg:text-7xl font-bold mb-4 lg:mb-6 text-white leading-tight"
           >
-            Your AICTE Points, <br/>
+            Your AICTE Points, <br className="hidden sm:block" />
             <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">Digitized.</span>
           </motion.h1>
 
@@ -64,7 +64,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-lg md:text-xl text-slate-300 mb-8 max-w-2xl mx-auto lg:mx-0"
+            className="text-base md:text-xl text-slate-300 mb-8 max-w-2xl mx-auto lg:mx-0"
           >
             Say goodbye to lost paper certificates and messy excel sheets. Discover college events, scan QR codes to check-in, and automatically track your 100 AICTE Activity points straight from your smartphone.
           </motion.p>
@@ -79,18 +79,18 @@ export default function Hero() {
               href="https://drive.google.com/file/d/1uoxNGTXS6XHe2g36PXi5MD_g51tm83At/view?usp=sharing" 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="px-8 py-3 rounded-xl font-bold transition-all duration-300 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/30 hover:scale-105 hover:-translate-y-1"
+              className="w-full sm:w-auto text-center px-8 py-3 rounded-xl font-bold transition-all duration-300 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/30 hover:scale-105 hover:-translate-y-1"
             >
               Download the App
             </a>
-            <Link href="/organizer/login" className="px-8 py-3 rounded-xl font-medium transition-all duration-300 backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 text-white hover:bg-white/20 hover:backdrop-blur-lg">
+            <Link href="/organizer/login" className="w-full sm:w-auto text-center px-8 py-3 rounded-xl font-medium transition-all duration-300 backdrop-blur-md bg-white/10 dark:bg-slate-900/30 border border-white/20 dark:border-slate-700/30 text-white hover:bg-white/20 hover:backdrop-blur-lg">
               Organizer Dashboard
             </Link>
           </motion.div>
         </motion.div>
 
         {/* Right Side: 3D Animated CSS Smartphone */}
-        <div className="relative w-full lg:w-1/2 flex items-center justify-center pointer-events-none mt-12 lg:mt-0 h-[500px] sm:h-[60vh] lg:h-full" style={{ perspective: '1200px' }}>
+        <div className="relative w-full lg:w-1/2 flex items-center justify-center pointer-events-none mt-16 lg:mt-0 h-[450px] sm:h-[500px] lg:h-full" style={{ perspective: '1200px' }}>
           <motion.div
             style={{ 
               rotateX: phoneRotateX, 
@@ -101,7 +101,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1.5, delay: 0.5, type: 'spring', bounce: 0.3 }}
-            className="w-full flex justify-center"
+            className="w-full flex justify-center scale-90 sm:scale-100"
           >
             <PhoneMockup>
               {/* Screen Content - App UI Replica from PointsTrack Source */}
