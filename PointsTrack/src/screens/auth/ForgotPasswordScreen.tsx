@@ -6,8 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { AuthNavigationProp } from "../../navigation/types";
 import Input from "../../components/Input";
 import Button from "../../components/Button";
-import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../../firebase/config";
+import { forgotPassword } from "../../lib/api";
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 
@@ -25,15 +24,13 @@ const ForgotPasswordScreen = () => {
     
     setLoading(true);
     try {
-      await sendPasswordResetEmail(auth, email);
+      await forgotPassword(email);
       Alert.alert(
         "Email Sent",
         "If an account exists with this email, a password reset link has been sent.",
         [{ text: "OK", onPress: () => navigation.navigate("Login") }]
       );
     } catch (error: any) {
-      // It's a best practice not to reveal if an email exists or not when using the standard error messages.
-      // But we will pass the Firebase error through if it's formatted incorrectly or the project lacks auth setup.
       Alert.alert("Request Failed", error.message);
     } finally {
       setLoading(false);

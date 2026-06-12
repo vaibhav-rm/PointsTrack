@@ -3,8 +3,7 @@
 import { motion } from 'framer-motion'
 import { Search, Mail, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { collection, query, where, getDocs, doc, getDoc, updateDoc, addDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 
@@ -18,68 +17,15 @@ export default function AttendeesPage() {
   const handleStatusUpdate = async (attendeeId: string, newStatus: string, newEngagement: string) => {
     setProcessingId(attendeeId);
     try {
-      const attendeeRef = doc(db, "attendees", attendeeId);
-      const attendeeSnap = await getDoc(attendeeRef);
-      
-      if (!attendeeSnap.exists()) {
-         throw new Error("Attendee not found");
-      }
-      
-      const attendeeData = attendeeSnap.data();
-      
-      // Update the attendee's specific registration status
-      await updateDoc(attendeeRef, {
+      // The API records the status change and, on approval, writes the points
+      // ledger row and sends the student push notification server-side.
+      await api.patch(`/attendees/${attendeeId}`, {
         status: newStatus,
-        engagement: newEngagement
+        engagement: newEngagement,
       });
-      
-      // If approved, actually award the points!
-      if (newStatus === 'checked-in') {
-        const pointsToAward = attendeeData.pointsAwarded || 10;
-        
-        // Fetch the original event to retain description and type
-        const originalEventRef = doc(db, "upcoming_events", attendeeData.eventId);
-        const originalEventSnap = await getDoc(originalEventRef);
-        
-        let eventType = "Points Awarded";
-        let eventDescription = `You were awarded ${pointsToAward} points for attending this event.`;
-        
-        if (originalEventSnap.exists()) {
-            const originalData = originalEventSnap.data();
-            eventType = originalData.type || eventType;
-            eventDescription = originalData.description || eventDescription;
-        }
 
-        // 1. Add to the Global `events` collection so the Mobile App instantly aggregates it!
-        await addDoc(collection(db, "events"), {
-          userId: attendeeData.attendeeUid,
-          organizerId: attendeeData.organizerId,
-          eventId: attendeeData.eventId,
-          clubName: originalEventSnap.exists() ? originalEventSnap.data().clubName || "" : "",
-          clubLogo: originalEventSnap.exists() ? originalEventSnap.data().clubLogo || "" : "",
-          title: attendeeData.event || "Activity Approved",
-          type: eventType,
-          description: eventDescription,
-          points: pointsToAward,
-          semester: 1, // Defaulting semester as standard
-          date: new Date().toISOString().split('T')[0],
-          createdAt: new Date().toISOString()
-        });
-        
-        // 2. Trigger targeted Push Notification!
-        fetch('/api/notify-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                uid: attendeeData.attendeeUid,
-                title: "Points Awarded! 🎉",
-                body: `You just received ${pointsToAward} points for ${attendeeData.event}!`
-            })
-        }).catch(err => console.error("Failed to notify user:", err));
-      }
-      
       // Optimistic update
-      setAttendees(prev => prev.map(a => 
+      setAttendees(prev => prev.map(a =>
         a.id === attendeeId ? { ...a, status: newStatus, engagement: newEngagement } : a
       ));
       toast.success(newStatus === 'checked-in' ? "Points allotted successfully" : "Registration rejected");
@@ -95,18 +41,15 @@ export default function AttendeesPage() {
     const fetchAttendees = async () => {
       if (!user) return;
       try {
-        const q = query(collection(db, "attendees"), where("organizerId", "==", user.uid));
-        const snapshot = await getDocs(q);
-        const fetchedAttendees: any[] = [];
-        snapshot.forEach((doc) => fetchedAttendees.push({ id: doc.id, ...doc.data() }));
-        
+        const fetchedAttendees = await api.get<any[]>('/attendees');
+
         // Sort by check-in time descending
         fetchedAttendees.sort((a, b) => {
           if (!a.checkInTimestamp) return 1;
           if (!b.checkInTimestamp) return -1;
           return new Date(b.checkInTimestamp).getTime() - new Date(a.checkInTimestamp).getTime();
         });
-        
+
         setAttendees(fetchedAttendees);
       } catch (error) {
         console.error("Error fetching attendees:", error);
@@ -122,7 +65,7 @@ export default function AttendeesPage() {
   const filteredAttendees = attendees.filter(a =>
     a.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     a.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    a.event?.toLowerCase().includes(searchTerm.toLowerCase())
+    a.eventTitle?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   return (
@@ -188,11 +131,11 @@ export default function AttendeesPage() {
                       </p>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-slate-300">{attendee.event}</td>
+                  <td className="px-6 py-4 text-slate-300">{attendee.eventTitle}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2 text-slate-300">
                       <Clock className="w-4 h-4" />
-                      {attendee.checkIn}
+                      {attendee.checkInTimestamp ? new Date(attendee.checkInTimestamp).toLocaleString() : '—'}
                     </div>
                   </td>
                   <td className="px-6 py-4">

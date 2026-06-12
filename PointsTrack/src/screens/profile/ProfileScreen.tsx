@@ -1,20 +1,37 @@
-import { View, Text, ScrollView, Alert, TouchableOpacity, Switch } from 'react-native';
-import React from 'react';
+import { View, Text, ScrollView, Alert, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
+import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { auth, db } from '../../firebase/config';
+import { useAuth } from '../../contexts/AuthContext';
 import useUserData from '../../hooks/useUserData';
 import Button from '../../components/Button';
-import { deleteUser } from 'firebase/auth';
-import { deleteDoc, doc } from 'firebase/firestore';
+import { api } from '../../lib/api';
+import { generateTranscript } from '../../lib/transcript';
+import QRCode from 'react-native-qrcode-svg';
 
 const ProfileScreen = () => {
   const { userData, loading } = useUserData();
+  const { logout, deleteAccount } = useAuth();
+  const [exporting, setExporting] = useState(false);
+
+  const handleDownloadTranscript = async () => {
+    if (!userData) return;
+    setExporting(true);
+    try {
+      const rows = await api.get<any[]>('/points');
+      await generateTranscript(userData as any, rows);
+    } catch (error: any) {
+      console.error('Transcript error', error);
+      Alert.alert('Error', error?.message || 'Could not generate the transcript. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
-      await auth.signOut();
+      await logout();
     } catch (error: any) {
       Alert.alert('Error', error.message);
     }
@@ -26,15 +43,12 @@ const ProfileScreen = () => {
       "Are you sure? This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
+        {
+          text: "Delete",
           style: "destructive",
           onPress: async () => {
             try {
-              if (auth.currentUser) {
-                await deleteDoc(doc(db, "users", auth.currentUser.uid));
-                await deleteUser(auth.currentUser);
-              }
+              await deleteAccount();
             } catch (error: any) {
               Alert.alert("Error", error.message);
             }
@@ -92,6 +106,19 @@ const ProfileScreen = () => {
           </View>
         </View>
 
+        {/* Check-in QR */}
+        {userData?.id && (
+          <View className="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 mb-6 items-center">
+            <Text className="text-lg font-pmedium text-textPrimary dark:text-white mb-1">My Check-in QR</Text>
+            <Text className="text-xs font-pregular text-textSecondary dark:text-gray-400 mb-4 text-center">
+              Show this to an organizer to get checked in at events.
+            </Text>
+            <View className="bg-white p-4 rounded-2xl">
+              <QRCode value={`ptrack:stu:${userData.id}`} size={180} backgroundColor="white" color="#0F172A" />
+            </View>
+          </View>
+        )}
+
         {/* Dark Mode Toggle */}
         <View className="bg-white dark:bg-darkCard p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 mb-6 flex-row justify-between items-center">
           <View className="flex-row items-center gap-3">
@@ -102,6 +129,28 @@ const ProfileScreen = () => {
           </View>
           <Switch value={colorScheme === 'dark'} onValueChange={toggleColorScheme} />
         </View>
+
+        {/* Download Transcript */}
+        <TouchableOpacity
+          onPress={handleDownloadTranscript}
+          disabled={exporting}
+          className="bg-white dark:bg-darkCard p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 mb-6 flex-row justify-between items-center"
+        >
+          <View className="flex-row items-center gap-3">
+            <View className="bg-primary/10 dark:bg-primary/20 p-2 rounded-full">
+              <Ionicons name="document-text-outline" size={24} color={colorScheme === 'dark' ? '#818CF8' : '#4F46E5'} />
+            </View>
+            <View>
+              <Text className="text-lg font-pmedium text-textPrimary dark:text-white">Download Transcript</Text>
+              <Text className="text-xs font-pregular text-textSecondary dark:text-gray-400">PDF of your AICTE points</Text>
+            </View>
+          </View>
+          {exporting ? (
+            <ActivityIndicator color={colorScheme === 'dark' ? '#818CF8' : '#4F46E5'} />
+          ) : (
+            <Ionicons name="download-outline" size={22} color={colorScheme === 'dark' ? 'white' : 'black'} />
+          )}
+        </TouchableOpacity>
 
         <Button title="Logout" onPress={handleLogout} variant="secondary" className="mb-4" />
         

@@ -30,7 +30,13 @@
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-font",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow PointsTrack to use the camera to scan attendee QR codes."
+        }
+      ]
     ]
   }
 }

@@ -1,11 +1,11 @@
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator } from 'react-native';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore';
-import { db, auth } from '../../firebase/config';
+import { api } from '../../lib/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface UpcomingEvent {
   id: string;
@@ -24,58 +24,44 @@ const UpcomingEventsScreen = () => {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const navigation = useNavigation<any>();
-  
+  const { profile } = useAuth();
+
   const [events, setEvents] = useState<UpcomingEvent[]>([]);
   const [appliedEventIds, setAppliedEventIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('All');
 
-  useEffect(() => {
-    if (!auth.currentUser) return;
-    
-    // 1. Listen to the user's applied events
-    const attendeesQuery = query(
-      collection(db, 'attendees'),
-      where('attendeeUid', '==', auth.currentUser.uid)
-    );
-
-    const unsubscribeAttendees = onSnapshot(attendeesQuery, (snapshot) => {
-      const ids = new Set<string>();
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.eventId) ids.add(data.eventId);
-      });
-      setAppliedEventIds(ids);
-    });
-
-    return () => unsubscribeAttendees();
-  }, []);
-
-  useEffect(() => {
-    // 2. Listen to ALL upcoming events
-    const eventsQuery = query(
-      collection(db, 'upcoming_events'),
-      orderBy('date', 'asc') // Sort chronologically by legacy date/time string
-    );
-
-    const unsubscribeEvents = onSnapshot(eventsQuery, (snapshot) => {
-      const eventsData: UpcomingEvent[] = [];
-      snapshot.forEach((doc) => {
-        // We no longer filter out applied events here!
-        eventsData.push({ id: doc.id, ...doc.data() } as UpcomingEvent);
-      });
+  // Fetch the student's college feed (their college + open-to-all) plus the set
+  // of events they've already applied to, then sort chronologically.
+  const loadData = useCallback(async () => {
+    try {
+      const college = profile?.college ? `?college=${encodeURIComponent(profile.college)}` : '';
+      const [eventsData, myApplications] = await Promise.all([
+        api.get<UpcomingEvent[]>(`/events${college}`),
+        api.get<any[]>('/attendees/mine'),
+      ]);
+      eventsData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       setEvents(eventsData);
+      setAppliedEventIds(new Set(myApplications.map((a) => a.eventId)));
+    } catch (error) {
+      console.error('Error loading upcoming events:', error);
+    } finally {
       setLoading(false);
-    });
+    }
+  }, [profile?.college]);
 
-    return () => unsubscribeEvents();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
-  const onRefresh = React.useCallback(async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    await loadData();
+    setRefreshing(false);
+  }, [loadData]);
 
   const filteredAndSortedEvents = useMemo(() => {
     // 1. Filter by category

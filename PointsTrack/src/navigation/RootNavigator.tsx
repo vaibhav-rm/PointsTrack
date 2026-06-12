@@ -1,30 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import AppStack from './AppStack'; 
+import AppStack from './AppStack';
 import AuthStack from './AuthStack';
 
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '../firebase/config';
 import { View, ActivityIndicator } from 'react-native';
+import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 
 const Stack = createNativeStackNavigator();
 
 const RootNavigator = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, loading } = useAuth();
 
-  // Initialize push notifications and sync token when user logs in
+  // Register for push notifications and sync the token once a user is signed in.
   usePushNotifications(user);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
 
   if (loading) {
     return (

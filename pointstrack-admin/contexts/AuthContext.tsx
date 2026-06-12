@@ -1,79 +1,98 @@
 "use client"
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
 import { useRouter, usePathname } from 'next/navigation';
-
-interface OrganizerProfile {
-  college: string;
-  clubName: string;
-  role: string;
-  bio?: string;
-  logo?: string;
-  coverImage?: string;
-  establishedDate?: string;
-  coreTeam?: string;
-}
+import {
+  fetchMe,
+  getAccessToken,
+  clearTokens,
+  type AuthUser,
+  type OrganizerProfile,
+} from '@/lib/api';
 
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   profile: OrganizerProfile | null;
   loading: boolean;
+  setProfile: (profile: OrganizerProfile) => void;
+  refreshProfile: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, profile: null, loading: true });
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  profile: null,
+  loading: true,
+  setProfile: () => {},
+  refreshProfile: async () => {},
+});
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<OrganizerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        try {
-          const organizerDoc = await getDoc(doc(db, 'organizers', firebaseUser.uid));
-          if (organizerDoc.exists()) {
-            setProfile(organizerDoc.data() as OrganizerProfile);
-          }
-        } catch (error) {
-          console.error("Error fetching organizer profile:", error);
-        }
-      } else {
-        setUser(null);
-        setProfile(null);
-      }
+  const loadSession = async () => {
+    // No token at all → definitely logged out, skip the network call.
+    if (!getAccessToken()) {
+      setUser(null);
+      setProfile(null);
       setLoading(false);
-    });
+      return;
+    }
+    try {
+      const me = await fetchMe();
+      setUser(me.user);
+      setProfile(me.profile);
+    } catch (error) {
+      // Token invalid/expired and refresh failed → treat as logged out.
+      clearTokens();
+      setUser(null);
+      setProfile(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return () => unsubscribe();
-  }, []);
+  const refreshProfile = async () => {
+    try {
+      const me = await fetchMe();
+      setProfile(me.profile);
+    } catch (error) {
+      console.error('Failed to refresh profile:', error);
+    }
+  };
 
-  // Handle redirects separately based on auth state and current path
+  // Re-check the session whenever the path changes (cheap once token is gone).
   useEffect(() => {
-    if (loading) return; // Wait for initial auth check
+    loadSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
-    const publicPaths = ['/organizer/login', '/organizer/register', '/'];
-    const isPublic = publicPaths.includes(pathname);
+  // Only the organizer portal is gated. Everything else (the marketing site)
+  // is public and must render for logged-out visitors.
+  const isOrganizerRoute = pathname.startsWith('/organizer');
+  const isAuthRoute = pathname === '/organizer/login' || pathname === '/organizer/register';
+  const isProtected = isOrganizerRoute && !isAuthRoute;
 
-    if (user && isPublic && pathname !== '/') {
+  // Handle redirects based on auth state and current path.
+  useEffect(() => {
+    if (loading) return;
+
+    if (user && isAuthRoute) {
       router.push('/organizer/dashboard');
-    } else if (!user && !isPublic) {
+    } else if (!user && isProtected) {
       router.push('/organizer/login');
     }
-  }, [user, loading, pathname, router]);
+  }, [user, loading, isAuthRoute, isProtected, router]);
 
-  // Don't render protected children until the auth check has verified the path
+  // Gate only protected routes on the auth check; marketing pages render at once.
   return (
-    <AuthContext.Provider value={{ user, profile, loading }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ user, profile, loading, setProfile, refreshProfile }}>
+      {isProtected && loading ? null : children}
     </AuthContext.Provider>
   );
 };

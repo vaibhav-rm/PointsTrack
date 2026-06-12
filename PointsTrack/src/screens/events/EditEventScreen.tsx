@@ -3,10 +3,8 @@ import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import DateTimePicker from '@react-native-community/datetimepicker'; 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { collection, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { auth, storage, db } from '../../firebase/config';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { api, uploadImage } from '../../lib/api';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
 import { AppNavigationProp, AppStackParamList } from '../../navigation/types';
@@ -47,21 +45,6 @@ const EditEventScreen = () => {
     }
   };
 
-  const uploadImage = async (uri: string) => {
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const filename = uri.substring(uri.lastIndexOf('/') + 1);
-      const storageRef = ref(storage, `certificates/${auth.currentUser?.uid}/${filename}`);
-      
-      await uploadBytes(storageRef, blob);
-      return await getDownloadURL(storageRef);
-    } catch (error) {
-      console.error("Error uploading image:", error);
-      throw error;
-    }
-  };
-
   const handleSubmit = async () => {
     if (!title || !type || !points || !date) {
       Alert.alert('Error', 'Please fill in all required fields');
@@ -75,8 +58,7 @@ const EditEventScreen = () => {
         certificateUrl = await uploadImage(image);
       }
 
-      const eventRef = doc(db, 'events', event.id);
-      await updateDoc(eventRef, {
+      await api.put(`/points/${event.id}`, {
         title,
         type,
         description,
@@ -106,7 +88,7 @@ const EditEventScreen = () => {
           onPress: async () => {
             setDeleteLoading(true);
             try {
-              await deleteDoc(doc(db, 'events', event.id));
+              await api.del(`/points/${event.id}`);
               Alert.alert('Success', 'Event deleted successfully!');
               navigation.navigate('Dashboard');
             } catch (error: any) {

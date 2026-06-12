@@ -2,16 +2,14 @@
 
 import { motion } from 'framer-motion'
 import { useState, useEffect } from 'react'
-import { auth, db, storage } from '@/lib/firebase'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { api, uploadFile, type OrganizerProfile } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { User, Users, Image as ImageIcon, Briefcase, Camera, Upload } from 'lucide-react'
 import { COLLEGES } from '@/lib/colleges'
 
 export default function SettingsPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, setProfile } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState({ logo: false, cover: false })
@@ -52,9 +50,7 @@ export default function SettingsPage() {
 
     setIsUploading(prev => ({ ...prev, [field === 'logo' ? 'logo' : 'cover']: true }));
     try {
-      const storageRef = ref(storage, `organizers/${user.uid}/${field}_${Date.now()}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
+      const url = await uploadFile(file);
       setFormData(prev => ({ ...prev, [field]: url }));
       toast.success(`${field === 'logo' ? 'Logo' : 'Cover Image'} uploaded successfully!`);
     } catch (error) {
@@ -76,8 +72,7 @@ export default function SettingsPage() {
     setIsSubmitting(true)
     
     try {
-      const orgRef = doc(db, 'organizers', user.uid)
-      await updateDoc(orgRef, {
+      const updated = await api.patch<OrganizerProfile>('/profile/organizer', {
         clubName: formData.clubName,
         college: formData.college,
         bio: formData.bio,
@@ -85,9 +80,10 @@ export default function SettingsPage() {
         coverImage: formData.coverImage,
         establishedDate: formData.establishedDate,
         coreTeam: formData.coreTeam,
-        updatedAt: new Date().toISOString()
       })
-      
+
+      // Keep the shared auth context (dashboard greeting, etc.) in sync.
+      setProfile(updated)
       toast.success("Profile settings updated successfully!")
     } catch (error) {
       console.error(error)

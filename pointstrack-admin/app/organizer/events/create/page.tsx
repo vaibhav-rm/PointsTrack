@@ -3,9 +3,7 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { auth, db, storage } from '@/lib/firebase'
-import { collection, addDoc } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { api, uploadFile, uploadFiles } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { Calendar, MapPin, Users, Clock, Upload, X } from 'lucide-react'
@@ -54,68 +52,50 @@ export default function CreateEventPage() {
     setPastFiles(prev => prev.filter((_, i) => i !== index))
   }
 
-  const uploadFile = async (file: File, path: string): Promise<string> => {
-    const storageRef = ref(storage, path)
-    await uploadBytes(storageRef, file)
-    return getDownloadURL(storageRef)
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!user || !profile) {
       toast.error("You must be logged in to create an event")
       return;
     }
-    
+
     setIsSubmitting(true)
-    
+
     try {
-      const eventId = Date.now().toString() // Temporary ID for folder structure
       let uploadedUrls: string[] = []
 
       // 1. Upload Banner (First Image)
       if (bannerFile) {
         toast.success("Uploading main banner...", { id: 'upload' })
-        const url = await uploadFile(bannerFile, `events/${eventId}/banner_${bannerFile.name}`)
+        const url = await uploadFile(bannerFile)
         uploadedUrls.push(url)
       }
 
       // 2. Upload Past Images (Subsequent Images)
       if (pastFiles.length > 0) {
         toast.success(`Uploading ${pastFiles.length} carousel images...`, { id: 'upload' })
-        const pastUploadPromises = pastFiles.map(file => 
-          uploadFile(file, `events/${eventId}/gallery_${Date.now()}_${file.name}`)
-        )
-        const pastUrls = await Promise.all(pastUploadPromises)
+        const pastUrls = await uploadFiles(pastFiles)
         uploadedUrls.push(...pastUrls)
       }
 
-      // 3. Save to Firestore
+      // 3. Create the event. The API derives organizer/club/college from the
+      // authenticated token and broadcasts the push notification server-side.
       toast.success("Creating event record...", { id: 'upload' })
-      await addDoc(collection(db, "upcoming_events"), {
+      await api.post('/events', {
         title: formData.name,
         startDate: formData.startDate,
         endDate: formData.endDate || formData.startDate,
-        startTime: formData.startTime || null,
-        endTime: formData.endTime || null,
-        // Keep legacy date field for sorting fallback, use start properties
-        date: formData.startTime ? `${formData.startDate}T${formData.startTime}` : `${formData.startDate}T00:00`, 
+        startTime: formData.startTime || undefined,
+        endTime: formData.endTime || undefined,
         location: formData.location,
-        type: "Activity", 
         points: parseInt(formData.points, 10) || 10,
         description: formData.description,
         capacity: parseInt(formData.capacity, 10) || 0,
-        organizerId: user.uid,
-        clubName: profile.clubName,
-        clubLogo: profile.logo || '', 
-        targetCollege: profile.college, 
         openToAll: formData.openToAll,
-        images: uploadedUrls, 
-        certificateUrl: uploadedUrls[0] || '', // Fallback
-        createdAt: new Date().toISOString()
+        images: uploadedUrls,
       })
-      
+
       toast.success("Event broadcasted successfully!", { id: 'upload' })
       router.push('/organizer/dashboard')
     } catch (error) {

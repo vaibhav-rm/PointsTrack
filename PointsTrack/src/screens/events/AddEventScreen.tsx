@@ -3,10 +3,8 @@ import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import DateTimePicker from '@react-native-community/datetimepicker'; 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc } from 'firebase/firestore';
-import { auth, storage, db } from '../../firebase/config';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { api, uploadImage } from '../../lib/api';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
 import { AppNavigationProp } from '../../navigation/types';
@@ -41,21 +39,6 @@ const AddEventScreen = () => {
     }
   };
 
-  const uploadImage = async (uri: string) => {
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const filename = uri.substring(uri.lastIndexOf('/') + 1);
-      const storageRef = ref(storage, `certificates/${auth.currentUser?.uid}/${filename}`);
-      
-      await uploadBytes(storageRef, blob);
-      return await getDownloadURL(storageRef);
-    } catch (error) {
-      console.error("Error uploading image:", error);
-      throw error;
-    }
-  };
-
   const handleSubmit = async () => {
     if (!title || !type || !points || !date) {
       Alert.alert('Error', 'Please fill in all required fields');
@@ -69,15 +52,13 @@ const AddEventScreen = () => {
         certificateUrl = await uploadImage(image);
       }
 
-      await addDoc(collection(db, 'events'), {
-        userId: auth.currentUser?.uid,
+      await api.post('/points', {
         title,
         type,
         description,
         points: Number(points),
         date,
         certificateUrl,
-        createdAt: new Date().toISOString(),
         semester: 1, // Defaulting for now, should be from user input or profile
       });
 

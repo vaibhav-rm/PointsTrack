@@ -6,15 +6,14 @@ import { useNavigation } from "@react-navigation/native";
 import { AuthNavigationProp } from "../../navigation/types";
 import Input from "../../components/Input";
 import Button from "../../components/Button";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../../firebase/config";
+import { useAuth } from "../../contexts/AuthContext";
 import { COLLEGES, College } from "../../data/colleges";
 import { Ionicons } from '@expo/vector-icons'; 
 import { useColorScheme } from 'nativewind';
 
 const RegisterScreen = () => {
   const navigation = useNavigation<AuthNavigationProp>();
+  const { register } = useAuth();
   const [loading, setLoading] = useState(false);
   const { colorScheme } = useColorScheme(); // assuming useColorScheme is available or we use nativewind
   
@@ -60,16 +59,12 @@ const RegisterScreen = () => {
     
     setLoading(true);
     try {
-      // 1. Create user in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-
-      // 2. Create user profile in Firestore
-      const requiredPoints = isLateralEntry ? 80 : 100;
-      
-      await setDoc(doc(db, "users", user.uid), {
+      // Create the account + student profile in one call. The API derives
+      // requiredPoints from the lateral-entry flag.
+      await register({
         name,
         email,
+        password,
         phone,
         college: selectedCollege.name,
         collegeCode: selectedCollege.code,
@@ -78,8 +73,6 @@ const RegisterScreen = () => {
         year: parseInt(year) || 1,
         semester: parseInt(semester) || 1,
         lateralEntry: isLateralEntry,
-        requiredPoints,
-        createdAt: new Date().toISOString(),
       });
 
       Alert.alert("Success", "Account created successfully!");

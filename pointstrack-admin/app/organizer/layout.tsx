@@ -5,8 +5,7 @@ import { Menu, X, LogOut, Settings, LayoutDashboard, Calendar, LineChart, Users 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { auth } from '@/lib/firebase'
-import { signOut } from 'firebase/auth'
+import { logout } from '@/lib/api'
 import toast from 'react-hot-toast'
 
 export default function OrganizerLayout({
@@ -25,7 +24,7 @@ export default function OrganizerLayout({
 
   const handleSignOut = async () => {
     try {
-      await signOut(auth)
+      await logout()
       toast.success("Signed out successfully")
       router.push('/organizer/login')
     } catch (error) {
@@ -40,6 +39,13 @@ export default function OrganizerLayout({
     { href: '/organizer/analytics', label: 'Analytics', icon: LineChart },
     { href: '/organizer/attendees', label: 'Attendees', icon: Users },
   ]
+
+  // Auth pages (login/register) live under /organizer too, but should render
+  // without the dashboard chrome — they bring their own centered layout.
+  const isAuthRoute = pathname === '/organizer/login' || pathname === '/organizer/register'
+  if (isAuthRoute) {
+    return <>{children}</>
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex relative">

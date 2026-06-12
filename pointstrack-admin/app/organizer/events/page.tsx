@@ -1,12 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore'
-import { auth, db } from '@/lib/firebase'
+import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Calendar, Users, MapPin, Clock, Trash2, Edit2 } from 'lucide-react'
+import { Calendar, Users, MapPin, Clock, Trash2, Edit2, UserCheck, ArrowRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function EventsPage() {
@@ -17,14 +16,8 @@ export default function EventsPage() {
   const fetchEvents = async () => {
     if (!user) return;
     try {
-      const q = query(collection(db, "upcoming_events"), where("organizerId", "==", user.uid));
-      const snapshot = await getDocs(q);
-      const fetchedEvents: any[] = [];
-      snapshot.forEach((doc) => fetchedEvents.push({ id: doc.id, ...doc.data() }));
-      
-      // Sort client side since we need composite index for where+orderBy in firestore
+      const fetchedEvents = await api.get<any[]>('/events/mine');
       fetchedEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
       setEvents(fetchedEvents);
     } catch (error) {
       console.error(error);
@@ -41,28 +34,8 @@ export default function EventsPage() {
   const handleDelete = async (eventId: string) => {
     if (!confirm("Are you sure you want to delete this event? This will remove it from all students' feeds immediately.")) return;
     try {
-      const eventToDelete = events.find(e => e.id === eventId);
-      
-      await deleteDoc(doc(db, "upcoming_events", eventId));
+      await api.del(`/events/${eventId}`);
       setEvents(events.filter(e => e.id !== eventId));
-      
-      if (eventToDelete) {
-        try {
-          await fetch('/api/notify-users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              title: "Event Cancelled",
-              body: `"${eventToDelete.title}" has been removed from the schedule.`,
-              eventId: eventId,
-              targetCollege: eventToDelete.targetCollege
-            })
-          });
-        } catch (err) {
-          console.error("Failed to notify users of deletion:", err);
-        }
-      }
-      
       toast.success("Event deleted");
     } catch (error) {
       console.error(error);
@@ -111,7 +84,9 @@ export default function EventsPage() {
             >
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div className="flex-1">
-                  <h3 className="text-xl font-bold text-white mb-3">{event.title}</h3>
+                  <Link href={`/organizer/events/${event.id}`} className="group/title inline-flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-white mb-3 group-hover/title:text-cyan-400 transition-colors">{event.title}</h3>
+                  </Link>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
                     <div className="flex items-center gap-2 text-slate-300">
                       <Calendar className="w-4 h-4 text-cyan-400" />
@@ -127,15 +102,25 @@ export default function EventsPage() {
                     </div>
                     <div className="flex items-center gap-2 text-slate-300">
                       <Users className="w-4 h-4 text-cyan-400" />
-                      <span className="text-sm">Max {event.capacity} Capacity</span>
+                      <span className="text-sm">
+                        {event.attendeeCount ?? 0} registered
+                        {(event.checkedInCount ?? 0) > 0 && (
+                          <span className="text-emerald-400"> · {event.checkedInCount} in</span>
+                        )}
+                      </span>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 mt-4 md:mt-0">
-                  <span className="px-4 py-2 rounded-lg font-medium bg-green-500/20 text-green-400 border border-green-500/30 shadow-sm">
-                    Live Status
-                  </span>
-                  <Link 
+                <div className="flex items-center gap-3 mt-4 md:mt-0">
+                  <Link
+                    href={`/organizer/events/${event.id}`}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-300 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-sm group/manage"
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    Manage
+                    <ArrowRight className="w-4 h-4 group-hover/manage:translate-x-0.5 transition-transform" />
+                  </Link>
+                  <Link
                     href={`/organizer/events/edit/${event.id}`}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-300 backdrop-blur-md bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 shadow-sm"
                   >

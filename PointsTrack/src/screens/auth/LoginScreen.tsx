@@ -6,11 +6,11 @@ import { useNavigation } from "@react-navigation/native";
 import { AuthNavigationProp } from "../../navigation/types";
 import Input from "../../components/Input";
 import Button from "../../components/Button";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../../firebase/config";
+import { useAuth } from "../../contexts/AuthContext";
 
 const LoginScreen = () => {
   const navigation = useNavigation<AuthNavigationProp>();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,8 +22,8 @@ const LoginScreen = () => {
     }
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Navigation is handled by RootNavigator auth listener
+      await login(email, password);
+      // Navigation is handled by RootNavigator based on auth state
     } catch (error: any) {
       Alert.alert("Login Failed", error.message);
     } finally {

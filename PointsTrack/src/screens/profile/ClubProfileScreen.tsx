@@ -4,8 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore';
-import { db } from '../../firebase/config';
+import { api } from '../../lib/api';
 import { AppNavigationProp, AppStackParamList } from '../../navigation/types';
 
 type ClubProfileScreenRouteProp = RouteProp<AppStackParamList, 'ClubProfile'>;
@@ -24,28 +23,13 @@ export default function ClubProfileScreen() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        // 1. Fetch Organizer Profile Data
-        const orgDoc = await getDoc(doc(db, 'organizers', organizerId));
-        if (orgDoc.exists()) {
-          setClub({ id: orgDoc.id, ...orgDoc.data() });
-        }
-
-        // 2. Fetch Organizer's Upcoming Events
-        const eventsQuery = query(
-          collection(db, 'upcoming_events'),
-          where('organizerId', '==', organizerId)
-        );
-        const eventsSnapshot = await getDocs(eventsQuery);
-        
-        let eventsArray: any[] = [];
-        eventsSnapshot.forEach(doc => {
-          eventsArray.push({ id: doc.id, ...doc.data() });
-        });
-        
-        // Manual sort since compound idx wasn't built for targetCollege / date
+        const [orgProfile, eventsArray] = await Promise.all([
+          api.get<any>(`/profile/organizer/${organizerId}`),
+          api.get<any[]>(`/events/by-organizer/${organizerId}`),
+        ]);
+        setClub(orgProfile);
         eventsArray.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         setEvents(eventsArray);
-
       } catch (error) {
         console.error("Error fetching club profile:", error);
       } finally {
@@ -160,7 +144,7 @@ export default function ClubProfileScreen() {
               {events.map((event) => (
                 <TouchableOpacity 
                   key={event.id}
-                  onPress={() => navigation.push('EventDetails', { event })}
+                  onPress={() => navigation.navigate('EventDetails', { event })}
                   className="bg-white dark:bg-darkCard p-4 rounded-2xl mb-4 border border-gray-100 dark:border-gray-800 shadow-sm"
                   activeOpacity={0.7}
                 >

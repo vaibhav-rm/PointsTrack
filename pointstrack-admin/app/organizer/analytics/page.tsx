@@ -3,8 +3,7 @@
 import { motion } from 'framer-motion'
 import { BarChart3, TrendingUp, Users, Clock } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { collection, query, where, getDocs } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function AnalyticsPage() {
@@ -17,20 +16,12 @@ export default function AnalyticsPage() {
     const fetchAnalyticsData = async () => {
       if (!user) return;
       try {
-        // Fetch events
-        const eventsQ = query(collection(db, "upcoming_events"), where("organizerId", "==", user.uid));
-        const eventsSnapshot = await getDocs(eventsQ);
-        const fetchedEvents: any[] = [];
-        eventsSnapshot.forEach((doc) => fetchedEvents.push({ id: doc.id, ...doc.data() }));
+        const [fetchedEvents, fetchedAttendees] = await Promise.all([
+          api.get<any[]>('/events/mine'),
+          api.get<any[]>('/attendees'),
+        ]);
         setEvents(fetchedEvents);
-
-        // Fetch attendees
-        const attendeesQ = query(collection(db, "attendees"), where("organizerId", "==", user.uid));
-        const attendeesSnapshot = await getDocs(attendeesQ);
-        const fetchedAttendees: any[] = [];
-        attendeesSnapshot.forEach((doc) => fetchedAttendees.push({ id: doc.id, ...doc.data() }));
         setAttendees(fetchedAttendees);
-        
       } catch (error) {
         console.error("Error fetching analytics data:", error);
       } finally {

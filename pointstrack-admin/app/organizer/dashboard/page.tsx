@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { Users, Calendar, TrendingUp, Activity, ArrowUpRight, Plus, BarChart2, Users as UsersIcon, Clock } from 'lucide-react'
-import { collection, query, where, getDocs } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function DashboardPage() {
@@ -22,18 +21,13 @@ export default function DashboardPage() {
     const fetchDashboardData = async () => {
       if (!user) return;
       try {
-        const q = query(collection(db, "upcoming_events"), where("organizerId", "==", user.uid));
-        const snapshot = await getDocs(q);
-        const fetchedEvents: any[] = [];
-        
+        const fetchedEvents = await api.get<any[]>('/events/mine');
+
         let internal = 0;
         let open = 0;
         let points = 0;
 
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          fetchedEvents.push({ id: doc.id, ...data });
-          
+        fetchedEvents.forEach((data) => {
           if (data.openToAll) {
             open++;
           } else {
@@ -41,9 +35,9 @@ export default function DashboardPage() {
           }
           points += (data.points || 0);
         });
-        
+
         fetchedEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        
+
         setStats({
           totalEvents: fetchedEvents.length,
           internalEvents: internal,

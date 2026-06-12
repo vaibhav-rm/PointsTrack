@@ -3,9 +3,7 @@
 import { motion } from 'framer-motion'
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { auth, db, storage } from '@/lib/firebase'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { api, uploadFile, uploadFiles } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { Calendar, MapPin, Users, Clock, Upload, X } from 'lucide-react'
@@ -41,11 +39,10 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
     const fetchEvent = async () => {
       if (!user) return;
       try {
-        const eventDoc = await getDoc(doc(db, "upcoming_events", eventId));
-        if (eventDoc.exists()) {
-          const data = eventDoc.data();
+        const data = await api.get<any>(`/events/${eventId}`);
+        if (data) {
           // Ensure security
-          if (data.organizerId !== user.uid) {
+          if (data.organizerId !== user.id) {
              toast.error("You do not have permission to edit this event.");
              router.push('/organizer/events');
              return;
@@ -100,19 +97,13 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
     }));
   }
 
-  const uploadFile = async (file: File, path: string): Promise<string> => {
-    const storageRef = ref(storage, path)
-    await uploadBytes(storageRef, file)
-    return getDownloadURL(storageRef)
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!user || !profile) return;
-    
+
     setIsSubmitting(true)
-    
+
     try {
       let uploadedUrls: string[] = []
 
@@ -122,61 +113,32 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
       // Upload Banner (Prepends to array to replace thumbnail)
       if (bannerFile) {
         toast.success("Uploading main banner...", { id: 'upload' })
-        const url = await uploadFile(bannerFile, `events/${eventId}/banner_${bannerFile.name}`)
+        const url = await uploadFile(bannerFile)
         uploadedUrls.unshift(url) // Put at the front of the array
       }
 
       // Upload Past Images
       if (pastFiles.length > 0) {
         toast.success(`Uploading ${pastFiles.length} new carousel images...`, { id: 'upload' })
-        const pastUploadPromises = pastFiles.map(file => 
-          uploadFile(file, `events/${eventId}/gallery_${Date.now()}_${file.name}`)
-        )
-        const pastUrls = await Promise.all(pastUploadPromises)
+        const pastUrls = await uploadFiles(pastFiles)
         uploadedUrls.push(...pastUrls)
       }
 
       toast.success("Updating event record...", { id: 'upload' })
-      const eventRef = doc(db, "upcoming_events", eventId);
-      
-      const updatePayload: any = {
+      await api.put(`/events/${eventId}`, {
         title: formData.name,
         startDate: formData.startDate,
         endDate: formData.endDate || formData.startDate,
-        startTime: formData.startTime || null,
-        endTime: formData.endTime || null,
-        date: formData.startTime ? `${formData.startDate}T${formData.startTime}` : `${formData.startDate}T00:00`, 
+        startTime: formData.startTime || undefined,
+        endTime: formData.endTime || undefined,
         location: formData.location,
         points: parseInt(formData.points, 10) || 10,
         description: formData.description,
         capacity: parseInt(formData.capacity, 10) || 0,
         openToAll: formData.openToAll,
-        updatedAt: new Date().toISOString()
-      };
+        images: uploadedUrls,
+      })
 
-      if (uploadedUrls.length > 0) {
-        updatePayload.images = uploadedUrls;
-        updatePayload.certificateUrl = uploadedUrls[0];
-      }
-
-      await updateDoc(eventRef, updatePayload);
-      
-      // Fire Expo Push Notification for UPDATE
-      try {
-        await fetch('/api/notify-users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: "Event Updated",
-            body: `"${formData.name}" has been updated by the organizer.`,
-            eventId: eventId,
-            targetCollege: profile.college
-          })
-        });
-      } catch (err) {
-        console.error("Failed to notify users:", err);
-      }
-      
       toast.success("Event updated successfully!", { id: 'upload' })
       router.push('/organizer/events')
     } catch (error) {

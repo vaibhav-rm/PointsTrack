@@ -6,8 +6,8 @@ import { AppNavigationProp, AppStackParamList } from '../../navigation/types';
 
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { collection, addDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../../firebase/config';
+import { api } from '../../lib/api';
+import { useAuth } from '../../contexts/AuthContext';
 import useUserData from '../../hooks/useUserData';
 
 type EventDetailsScreenRouteProp = RouteProp<AppStackParamList, 'EventDetails'>;
@@ -18,26 +18,25 @@ const EventDetailsScreen = () => {
   const { event } = route.params;
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const { user } = useAuth();
   const { userData } = useUserData();
-  
-  const isCreator = auth.currentUser && (event.userId === auth.currentUser.uid || event.organizerId === auth.currentUser.uid);
+
+  const isCreator = !!user && (event.userId === user.id || event.organizerId === user.id);
 
   const [isApplying, setIsApplying] = useState(false);
   const [hasApplied, setHasApplied] = useState(false);
+  const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check if user already applied
+    // Check if the student already applied to this event.
     const checkApplication = async () => {
-      if (!auth.currentUser) return;
       try {
-        const q = query(
-          collection(db, "attendees"), 
-          where("eventId", "==", event.id),
-          where("attendeeUid", "==", auth.currentUser.uid)
+        const res = await api.get<{ applied: boolean; status: string | null }>(
+          `/attendees/check?eventId=${event.id}`
         );
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
+        if (res.applied) {
           setHasApplied(true);
+          setApplicationStatus(res.status);
         }
       } catch (error) {
         console.error("Error checking application status:", error);
@@ -47,12 +46,12 @@ const EventDetailsScreen = () => {
   }, [event.id]);
 
   const handleApply = async () => {
-    if (!auth.currentUser || !userData) {
+    if (!user || !userData) {
       Alert.alert("Error", "You must be logged in to apply.");
       return;
     }
 
-    // Eligibility check for 'College Only'
+    // Eligibility check for 'College Only' (the API enforces this too).
     if (!event.openToAll && event.targetCollege && event.targetCollege !== userData.college) {
       Alert.alert("Not Eligible", "This event is restricted to students of " + event.targetCollege);
       return;
@@ -60,24 +59,18 @@ const EventDetailsScreen = () => {
 
     setIsApplying(true);
     try {
-      await addDoc(collection(db, "attendees"), {
-        attendeeUid: auth.currentUser.uid,
-        name: userData.name,
-        email: userData.email,
-        eventId: event.id,
-        event: event.title,
-        organizerId: event.organizerId,
-        status: 'pending',
-        engagement: 'Pending',
-        checkInTimestamp: serverTimestamp(),
-        pointsAwarded: event.points || 10
-      });
-      
+      const attendee = await api.post<{ status: string }>('/attendees', { eventId: event.id });
+
       setHasApplied(true);
-      Alert.alert("Success", "You have successfully applied for this event. Points will be awarded upon organizer approval.");
-    } catch (error) {
+      setApplicationStatus(attendee.status);
+      if (attendee.status === 'waitlisted') {
+        Alert.alert("You're on the waitlist", "This event is full. We'll notify you if a spot opens up.");
+      } else {
+        Alert.alert("Success", "You have successfully applied for this event. Points will be awarded upon organizer approval.");
+      }
+    } catch (error: any) {
       console.error("Apply error", error);
-      Alert.alert("Error", "Failed to apply for the event. Please try again.");
+      Alert.alert("Error", error?.message || "Failed to apply for the event. Please try again.");
     } finally {
       setIsApplying(false);
     }
@@ -250,20 +243,38 @@ const EventDetailsScreen = () => {
         </View>
       </ScrollView>
 
-      {/* Sticky Bottom Apply Button (Only for Upcoming Events from Organizers) */}
-      {event.organizerId && (
+      {/* Sticky bottom action: organizers scan attendees, students apply. */}
+      {event.organizerId && isCreator && (
+        <View className="px-6 py-4 bg-background dark:bg-darkBackground border-t border-gray-100 dark:border-gray-800">
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ScanAttendee', { eventId: event.id, eventTitle: event.title })}
+            className="w-full py-4 rounded-xl flex-row items-center justify-center shadow-sm bg-primary dark:bg-indigo-500"
+          >
+            <Ionicons name="qr-code-outline" size={20} color="white" />
+            <Text className="text-white font-pbold text-lg ml-2">Scan Attendees</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {event.organizerId && !isCreator && (
         <View className="px-6 py-4 bg-background dark:bg-darkBackground border-t border-gray-100 dark:border-gray-800">
           <TouchableOpacity
             onPress={handleApply}
             disabled={hasApplied || isApplying}
             className={`w-full py-4 rounded-xl flex-row items-center justify-center shadow-sm ${
-              hasApplied 
-                ? 'bg-success/20' 
+              applicationStatus === 'waitlisted'
+                ? 'bg-orange-500/20'
+                : hasApplied
+                ? 'bg-success/20'
                 : 'bg-primary dark:bg-indigo-500'
             } ${isApplying ? 'opacity-70' : ''}`}
           >
             {isApplying ? (
               <ActivityIndicator color="white" />
+            ) : applicationStatus === 'waitlisted' ? (
+              <>
+                <Ionicons name="time" size={20} color="#F97316" />
+                <Text className="text-orange-500 font-pbold text-lg ml-2">On Waitlist</Text>
+              </>
             ) : hasApplied ? (
               <>
                 <Ionicons name="checkmark-circle" size={20} color="#10B981" />

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."attendee_status" ADD VALUE 'waitlisted';

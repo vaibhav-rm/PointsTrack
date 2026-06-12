@@ -7,15 +7,16 @@ import useUserData from '../../hooks/useUserData';
 import useEvents from '../../hooks/useEvents';
 import ProgressRing from '../../components/ProgressRing';
 import Button from '../../components/Button';
-import { auth } from '../../firebase/config';
+import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 
 const DashboardScreen = () => {
   const navigation = useNavigation<AppNavigationProp>();
   const { colorScheme } = useColorScheme();
+  const { logout } = useAuth();
   const { userData, loading: userLoading } = useUserData();
-  const { events, loading: eventsLoading } = useEvents();
+  const { events, loading: eventsLoading, refetch } = useEvents();
 
   const totalPoints = useMemo(() => {
     return events.reduce((acc, event) => acc + (Number(event.points) || 0), 0);
@@ -26,11 +27,11 @@ const DashboardScreen = () => {
   const remainingPoints = Math.max(requiredPoints - totalPoints, 0);
 
   const onRefresh = () => {
-    // Hooks handle real-time updates, but this could trigger a manual refetch if needed
+    refetch();
   };
 
   const handleLogout = () => {
-    auth.signOut();
+    logout();
   };
 
   if (userLoading || eventsLoading) {

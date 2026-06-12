@@ -3,17 +3,44 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const geist = Geist({ subsets: ['latin'], variable: '--font-geist-sans' });
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' });
 
 export const viewport = {
   themeColor: '#0F172A',
 }
 
 export const metadata: Metadata = {
-  title: 'PointsTrack - AICTE Activity Tracker',
-  description: 'Organizer dashboard for tracking AICTE activities and awarding event points.',
-  generator: 'v0.app',
+  metadataBase: new URL('https://pointstrack.in'),
+  title: {
+    default: 'PointsTrack — AICTE Activity Points, Digitized',
+    template: '%s | PointsTrack',
+  },
+  description: 'PointsTrack helps engineering students automatically track their 100 AICTE Activity Points. Organizers publish events, students scan QR codes — points are awarded instantly.',
+  keywords: ['AICTE points', 'engineering college', 'activity tracker', 'event management', 'student app'],
+  authors: [{ name: 'PointsTrack' }],
+  creator: 'PointsTrack',
+  openGraph: {
+    type: 'website',
+    locale: 'en_IN',
+    url: 'https://pointstrack.in',
+    siteName: 'PointsTrack',
+    title: 'PointsTrack — AICTE Activity Points, Digitized',
+    description: 'Say goodbye to lost certificates and messy Excel sheets. Discover events, scan QR codes, and track your AICTE points from your smartphone.',
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'PointsTrack',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'PointsTrack — AICTE Activity Points, Digitized',
+    description: 'Track your AICTE Activity Points with PointsTrack.',
+  },
   icons: {
     icon: [
       {
@@ -34,7 +61,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${geist.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased bg-slate-950 text-slate-50">
         <AuthProvider>
           {children}

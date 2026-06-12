@@ -2,23 +2,22 @@ import { useState, useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
-import { User } from 'firebase/auth';
+import { api, type AuthUser } from '../lib/api';
 
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
-        shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
         shouldPlaySound: true,
         shouldSetBadge: false,
     }),
 });
 
-export function usePushNotifications(user: User | null) {
+export function usePushNotifications(user: AuthUser | null) {
     const [expoPushToken, setExpoPushToken] = useState('');
     const [notification, setNotification] = useState<Notifications.Notification | false>(false);
-    const notificationListener = useRef<Notifications.Subscription>();
-    const responseListener = useRef<Notifications.Subscription>();
+    const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
+    const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
 
     useEffect(() => {
         registerForPushNotificationsAsync().then(token => setExpoPushToken(token ?? ''));
@@ -32,22 +31,17 @@ export function usePushNotifications(user: User | null) {
         });
 
         return () => {
-            if (notificationListener.current) {
-                Notifications.removeNotificationSubscription(notificationListener.current);
-            }
-            if (responseListener.current) {
-                Notifications.removeNotificationSubscription(responseListener.current);
-            }
+            notificationListener.current?.remove();
+            responseListener.current?.remove();
         };
     }, []);
 
     useEffect(() => {
-        if (user?.uid && expoPushToken) {
-            // Save the push token against the user's profile in Firestore
+        if (user?.id && expoPushToken) {
+            // Save the push token against the student's profile via the API.
             const updatePushToken = async () => {
                 try {
-                    const userRef = doc(db, 'users', user.uid);
-                    await setDoc(userRef, { pushToken: expoPushToken }, { merge: true });
+                    await api.put('/profile/student/push-token', { pushToken: expoPushToken });
                     console.log("Push token synced successfully");
                 } catch (error) {
                     console.error("Failed to sync push token", error);
