@@ -10,6 +10,7 @@ import Button from '../../components/Button';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const DashboardScreen = () => {
   const navigation = useNavigation<AppNavigationProp>();
@@ -80,6 +81,25 @@ const DashboardScreen = () => {
             )}
           </View>
         </View>
+
+        {/* Semester Wrapped banner */}
+        <TouchableOpacity activeOpacity={0.85} onPress={() => navigation.navigate('SemesterWrapped')} className="mb-8">
+          <LinearGradient
+            colors={['#4F46E5', '#06B6D4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ borderRadius: 20, padding: 18, flexDirection: 'row', alignItems: 'center' }}
+          >
+            <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="sparkles" size={22} color="white" />
+            </View>
+            <View className="flex-1 ml-3">
+              <Text className="text-white font-pbold text-base">Your Semester Wrapped</Text>
+              <Text className="text-white/80 font-pregular text-xs mt-0.5">See your activity story & share it ✨</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* Recent Events */}
         <View className="flex-row justify-between items-center mb-4">
