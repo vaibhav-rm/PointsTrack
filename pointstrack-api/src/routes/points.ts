@@ -4,22 +4,28 @@ import { eq, desc } from 'drizzle-orm';
 import { db, pointsLedger } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
+import { parsePagination } from '../lib/pagination.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { forbidden, notFound } from '../lib/errors.js';
 
 export const pointsRouter = Router();
 
 // ---- Current student's points ledger (the wallet) ----
+// Clients compute totals from this, so the default page is generous; the hard
+// cap still protects against a pathologically large ledger.
 pointsRouter.get(
   '/',
   requireAuth,
   requireRole('student'),
   asyncHandler(async (req, res) => {
+    const { limit, offset } = parsePagination(req, 500, 1000);
     const rows = await db
       .select()
       .from(pointsLedger)
       .where(eq(pointsLedger.studentId, req.auth!.sub))
-      .orderBy(desc(pointsLedger.date));
+      .orderBy(desc(pointsLedger.date))
+      .limit(limit)
+      .offset(offset);
     res.json(rows);
   })
 );

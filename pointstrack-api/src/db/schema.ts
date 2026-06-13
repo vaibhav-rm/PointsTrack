@@ -8,6 +8,7 @@ import {
   jsonb,
   pgEnum,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // ---- Enums ----
@@ -144,6 +145,12 @@ export const attendees = pgTable(
     organizerIdx: index('attendees_organizer_idx').on(t.organizerId),
     eventIdx: index('attendees_event_idx').on(t.eventId),
     studentIdx: index('attendees_student_idx').on(t.studentId),
+    // A student can register for a given event at most once. Enforced in the DB
+    // so concurrent applications can't create duplicates.
+    eventStudentUnique: uniqueIndex('attendees_event_student_unique').on(
+      t.eventId,
+      t.studentId
+    ),
   })
 );
 
@@ -162,6 +169,12 @@ export const pointsLedger = pgTable(
     eventId: uuid('event_id').references(() => eventsCatalog.id, {
       onDelete: 'set null',
     }),
+    // Links an organizer-awarded ledger row to the attendee check-in that created
+    // it. Unique → a single check-in can never award points twice (self-logged
+    // entries leave this null, and NULLs are allowed to repeat).
+    attendeeId: uuid('attendee_id').references(() => attendees.id, {
+      onDelete: 'set null',
+    }),
     clubName: text('club_name'),
     clubLogo: text('club_logo'),
     title: text('title').notNull(),
@@ -175,6 +188,7 @@ export const pointsLedger = pgTable(
   },
   (t) => ({
     studentIdx: index('points_ledger_student_idx').on(t.studentId),
+    attendeeUnique: uniqueIndex('points_ledger_attendee_unique').on(t.attendeeId),
   })
 );
 

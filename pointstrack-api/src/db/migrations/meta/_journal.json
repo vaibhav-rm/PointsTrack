@@ -15,6 +15,13 @@
       "when": 1781286096410,
       "tag": "0001_rapid_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781369631719,
+      "tag": "0002_loose_viper",
+      "breakpoints": true
     }
   ]
 }

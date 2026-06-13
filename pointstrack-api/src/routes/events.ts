@@ -4,6 +4,7 @@ import { eq, or, desc, sql } from 'drizzle-orm';
 import { db, eventsCatalog, organizers, attendees } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
+import { parsePagination } from '../lib/pagination.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { forbidden, notFound } from '../lib/errors.js';
 import { notifyStudentsByCollege } from '../lib/notifications.js';
@@ -35,6 +36,7 @@ eventsRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const college = (req.query.college as string) || undefined;
+    const { limit, offset } = parsePagination(req);
 
     const rows = await db
       .select()
@@ -44,7 +46,9 @@ eventsRouter.get(
           ? or(eq(eventsCatalog.openToAll, true), eq(eventsCatalog.targetCollege, college))
           : undefined
       )
-      .orderBy(desc(eventsCatalog.date));
+      .orderBy(desc(eventsCatalog.date))
+      .limit(limit)
+      .offset(offset);
 
     res.json(rows);
   })
@@ -56,11 +60,14 @@ eventsRouter.get(
   requireAuth,
   requireRole('organizer'),
   asyncHandler(async (req, res) => {
+    const { limit, offset } = parsePagination(req);
     const rows = await db
       .select()
       .from(eventsCatalog)
       .where(eq(eventsCatalog.organizerId, req.auth!.sub))
-      .orderBy(desc(eventsCatalog.date));
+      .orderBy(desc(eventsCatalog.date))
+      .limit(limit)
+      .offset(offset);
 
     // Attach per-event registration counts so the dashboard can show how many
     // students applied / were checked in without an extra round-trip per card.
@@ -90,11 +97,14 @@ eventsRouter.get(
   '/by-organizer/:id',
   requireAuth,
   asyncHandler(async (req, res) => {
+    const { limit, offset } = parsePagination(req);
     const rows = await db
       .select()
       .from(eventsCatalog)
       .where(eq(eventsCatalog.organizerId, req.params.id))
-      .orderBy(desc(eventsCatalog.date));
+      .orderBy(desc(eventsCatalog.date))
+      .limit(limit)
+      .offset(offset);
     res.json(rows);
   })
 );

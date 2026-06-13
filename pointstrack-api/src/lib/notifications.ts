@@ -1,5 +1,5 @@
 import { Expo, type ExpoPushMessage } from 'expo-server-sdk';
-import { inArray } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { db, students } from '../db/index.js';
 
 const expo = new Expo();
@@ -39,24 +39,26 @@ export async function notifyStudent(studentId: string, payload: PushPayload) {
   const [student] = await db
     .select({ pushToken: students.pushToken })
     .from(students)
-    .where(inArray(students.id, [studentId]));
+    .where(eq(students.id, studentId));
   if (!student?.pushToken) return [];
   return sendToTokens([student.pushToken], payload);
 }
 
 // Notify all eligible students. When targetCollege is set, only that college;
-// otherwise everyone (open-to-all event).
+// otherwise everyone (open-to-all event). The filtering happens in SQL — and
+// we only pull rows that actually have a push token — so a broadcast never loads
+// the entire students table into memory.
 export async function notifyStudentsByCollege(
   payload: PushPayload,
   targetCollege?: string | null
 ) {
+  const conds = [isNotNull(students.pushToken)];
+  if (targetCollege) conds.push(eq(students.college, targetCollege));
+
   const rows = await db
-    .select({ pushToken: students.pushToken, college: students.college })
-    .from(students);
+    .select({ pushToken: students.pushToken })
+    .from(students)
+    .where(and(...conds));
 
-  const tokens = rows
-    .filter((r) => r.pushToken && (!targetCollege || r.college === targetCollege))
-    .map((r) => r.pushToken!) as string[];
-
-  return sendToTokens(tokens, payload);
+  return sendToTokens(rows.map((r) => r.pushToken!) as string[], payload);
 }
