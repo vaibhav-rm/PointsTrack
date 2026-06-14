@@ -14,6 +14,7 @@ import { useColorScheme } from 'nativewind';
 import ClubProfileScreen from '../screens/profile/ClubProfileScreen';
 import RecentActivityScreen from '../screens/dashboard/RecentActivityScreen';
 import ScanAttendeeScreen from '../screens/events/ScanAttendeeScreen';
+import ManageVolunteersScreen from '../screens/events/ManageVolunteersScreen';
 import SemesterWrappedScreen from '../screens/dashboard/SemesterWrappedScreen';
 
 const Tab = createBottomTabNavigator<AppStackParamList>();
@@ -108,6 +109,15 @@ const AppStack = () => {
       <Tab.Screen
         name="ScanAttendee"
         component={ScanAttendeeScreen}
+        options={{
+          tabBarStyle: { display: 'none' },
+          tabBarItemStyle: { display: 'none' },
+          tabBarButton: () => null, // Hide from tab bar visually
+        }}
+      />
+      <Tab.Screen
+        name="ManageVolunteers"
+        component={ManageVolunteersScreen}
         options={{
           tabBarStyle: { display: 'none' },
           tabBarItemStyle: { display: 'none' },

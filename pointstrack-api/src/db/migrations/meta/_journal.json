@@ -22,6 +22,27 @@
       "when": 1781369631719,
       "tag": "0002_loose_viper",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781431138576,
+      "tag": "0003_furry_tinkerer",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781434121528,
+      "tag": "0004_smooth_gravity",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781461305455,
+      "tag": "0005_lush_king_cobra",
+      "breakpoints": true
     }
   ]
 }

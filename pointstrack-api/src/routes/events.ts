@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq, or, desc, sql } from 'drizzle-orm';
-import { db, eventsCatalog, organizers, attendees } from '../db/index.js';
+import { eq, and, or, desc, sql } from 'drizzle-orm';
+import { db, eventsCatalog, organizers, attendees, students, eventVolunteers } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
 import { parsePagination } from '../lib/pagination.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { forbidden, notFound } from '../lib/errors.js';
+import { requireAuth, requireClub } from '../middleware/auth.js';
+import { badRequest, forbidden, notFound } from '../lib/errors.js';
 import { notifyStudentsByCollege } from '../lib/notifications.js';
 
 export const eventsRouter = Router();
@@ -58,7 +58,6 @@ eventsRouter.get(
 eventsRouter.get(
   '/mine',
   requireAuth,
-  requireRole('organizer'),
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req);
     const rows = await db
@@ -123,11 +122,11 @@ eventsRouter.get(
   })
 );
 
-// ---- Create event (organizer) ----
+// ---- Create event (must own a club) ----
 eventsRouter.post(
   '/',
   requireAuth,
-  requireRole('organizer'),
+  requireClub,
   asyncHandler(async (req, res) => {
     const data = parseBody(eventSchema, req);
     const [profile] = await db
@@ -174,11 +173,120 @@ eventsRouter.post(
   })
 );
 
+// ---------------------------------------------------------------------------
+// Volunteers — students the owner authorises to scan/check-in for an event.
+// ---------------------------------------------------------------------------
+
+// Ensures the caller owns the event; returns it. Used by volunteer routes.
+async function getOwnedEvent(eventId: string, accountId: string) {
+  const [event] = await db.select().from(eventsCatalog).where(eq(eventsCatalog.id, eventId));
+  if (!event) throw notFound('Event not found');
+  if (event.organizerId !== accountId) throw forbidden('Not your event');
+  return event;
+}
+
+// List volunteers for an event (owner only).
+eventsRouter.get(
+  '/:id/volunteers',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await getOwnedEvent(req.params.id, req.auth!.sub);
+    const rows = await db
+      .select({
+        studentId: eventVolunteers.studentId,
+        name: students.name,
+        email: students.email,
+        usn: students.usn,
+        addedAt: eventVolunteers.createdAt,
+      })
+      .from(eventVolunteers)
+      .innerJoin(students, eq(students.id, eventVolunteers.studentId))
+      .where(eq(eventVolunteers.eventId, req.params.id))
+      .orderBy(desc(eventVolunteers.createdAt));
+    res.json(rows);
+  })
+);
+
+// Add a volunteer by USN or email (owner only).
+const addVolunteerSchema = z
+  .object({ usn: z.string().optional(), email: z.string().email().optional() })
+  .refine((d) => d.usn || d.email, { message: 'Provide a USN or email' });
+
+eventsRouter.post(
+  '/:id/volunteers',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await getOwnedEvent(req.params.id, req.auth!.sub);
+    const { usn, email } = parseBody(addVolunteerSchema, req);
+
+    const [student] = await db
+      .select()
+      .from(students)
+      .where(usn ? eq(students.usn, usn) : eq(students.email, email!));
+    if (!student) throw notFound('No student found with that USN/email');
+    if (student.id === req.auth!.sub) throw badRequest('You already own this event');
+
+    await db
+      .insert(eventVolunteers)
+      .values({ eventId: req.params.id, studentId: student.id })
+      .onConflictDoNothing({ target: [eventVolunteers.eventId, eventVolunteers.studentId] });
+
+    res.status(201).json({ studentId: student.id, name: student.name, email: student.email, usn: student.usn });
+  })
+);
+
+// Remove a volunteer (owner only).
+eventsRouter.delete(
+  '/:id/volunteers/:studentId',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await getOwnedEvent(req.params.id, req.auth!.sub);
+    await db
+      .delete(eventVolunteers)
+      .where(
+        and(
+          eq(eventVolunteers.eventId, req.params.id),
+          eq(eventVolunteers.studentId, req.params.studentId)
+        )
+      );
+    res.json({ success: true });
+  })
+);
+
+// Whether the caller can scan this event (owner or volunteer) — drives the
+// mobile UI (show "Scan" vs "Apply").
+eventsRouter.get(
+  '/:id/scan-access',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [event] = await db
+      .select({ organizerId: eventsCatalog.organizerId })
+      .from(eventsCatalog)
+      .where(eq(eventsCatalog.id, req.params.id));
+    if (!event) throw notFound('Event not found');
+
+    const isOwner = event.organizerId === req.auth!.sub;
+    let isVolunteer = false;
+    if (!isOwner) {
+      const [vol] = await db
+        .select({ id: eventVolunteers.id })
+        .from(eventVolunteers)
+        .where(
+          and(
+            eq(eventVolunteers.eventId, req.params.id),
+            eq(eventVolunteers.studentId, req.auth!.sub)
+          )
+        );
+      isVolunteer = !!vol;
+    }
+    res.json({ isOwner, isVolunteer, canScan: isOwner || isVolunteer });
+  })
+);
+
 // ---- Update event (organizer, owner only) ----
 eventsRouter.put(
   '/:id',
   requireAuth,
-  requireRole('organizer'),
   asyncHandler(async (req, res) => {
     const data = parseBody(eventSchema.partial(), req);
     const [existing] = await db
@@ -210,7 +318,6 @@ eventsRouter.put(
 eventsRouter.delete(
   '/:id',
   requireAuth,
-  requireRole('organizer'),
   asyncHandler(async (req, res) => {
     const [existing] = await db
       .select()

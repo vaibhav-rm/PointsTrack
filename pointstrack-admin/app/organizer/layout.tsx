@@ -5,7 +5,9 @@ import { Menu, X, LogOut, Settings, LayoutDashboard, Calendar, LineChart, Users 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { logout } from '@/lib/api'
+import { logout, DEFAULT_ACCENT } from '@/lib/api'
+import { useAuth } from '@/contexts/AuthContext'
+import ProfileCompletionBanner from '@/components/organizer/ProfileCompletionBanner'
 import toast from 'react-hot-toast'
 
 export default function OrganizerLayout({
@@ -16,6 +18,8 @@ export default function OrganizerLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
+  const { profile } = useAuth()
+  const accent = profile?.accentColor || DEFAULT_ACCENT
 
   // Auto-close mobile sidebar when navigating
   useEffect(() => {
@@ -40,15 +44,18 @@ export default function OrganizerLayout({
     { href: '/organizer/attendees', label: 'Attendees', icon: Users },
   ]
 
-  // Auth pages (login/register) live under /organizer too, but should render
-  // without the dashboard chrome — they bring their own centered layout.
-  const isAuthRoute = pathname === '/organizer/login' || pathname === '/organizer/register'
-  if (isAuthRoute) {
+  // Auth + onboarding pages live under /organizer too, but render without the
+  // dashboard chrome — they bring their own centered layout.
+  const isChromeless =
+    pathname === '/organizer/login' ||
+    pathname === '/organizer/register' ||
+    pathname === '/organizer/create-club'
+  if (isChromeless) {
     return <>{children}</>
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex relative">
+    <div className="min-h-screen bg-slate-950 flex relative" style={{ ['--accent' as string]: accent } as React.CSSProperties}>
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {sidebarOpen && (
@@ -64,11 +71,12 @@ export default function OrganizerLayout({
 
       {/* Desktop Sidebar (Always Visible) */}
       <aside className="hidden md:flex flex-col w-64 h-screen bg-slate-900 border-r border-slate-800 z-40 shrink-0 sticky top-0">
-        <SidebarContent 
-          navItems={navItems} 
-          pathname={pathname} 
-          setSidebarOpen={setSidebarOpen} 
-          handleSignOut={handleSignOut} 
+        <SidebarContent
+          navItems={navItems}
+          pathname={pathname}
+          setSidebarOpen={setSidebarOpen}
+          handleSignOut={handleSignOut}
+          accent={accent}
         />
       </aside>
 
@@ -82,11 +90,12 @@ export default function OrganizerLayout({
             transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
             className="fixed md:hidden flex flex-col w-72 h-screen bg-slate-900 border-r border-slate-800 z-40 top-0 left-0 shadow-2xl"
           >
-            <SidebarContent 
-              navItems={navItems} 
-              pathname={pathname} 
-              setSidebarOpen={setSidebarOpen} 
-              handleSignOut={handleSignOut} 
+            <SidebarContent
+              navItems={navItems}
+              pathname={pathname}
+              setSidebarOpen={setSidebarOpen}
+              handleSignOut={handleSignOut}
+              accent={accent}
             />
           </motion.aside>
         )}
@@ -97,7 +106,7 @@ export default function OrganizerLayout({
         {/* Mobile Header (Sticky & Glassmorphic) */}
         <div className="md:hidden sticky top-0 z-20 flex items-center justify-between p-4 border-b border-slate-800/50 bg-slate-900/80 backdrop-blur-md">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: accent }}>
               <span className="text-white font-bold text-lg">P</span>
             </div>
             <h1 className="font-bold text-white text-xl tracking-tight hidden sm:block">PointsTrack</h1>
@@ -112,6 +121,7 @@ export default function OrganizerLayout({
 
         {/* Page Content */}
         <div className="p-4 md:p-8 flex-1 max-w-7xl mx-auto w-full">
+          <ProfileCompletionBanner />
           {children}
         </div>
       </main>
@@ -119,16 +129,16 @@ export default function OrganizerLayout({
   )
 }
 
-function SidebarContent({ navItems, pathname, setSidebarOpen, handleSignOut }: any) {
+function SidebarContent({ navItems, pathname, setSidebarOpen, handleSignOut, accent }: any) {
   return (
     <>
       <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{ backgroundColor: accent, boxShadow: `0 10px 15px -3px ${accent}33` }}>
           <span className="text-white font-bold text-xl">P</span>
         </div>
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight leading-none mb-1">PointsTrack</h1>
-          <p className="text-xs font-medium text-cyan-400">Organizer Portal</p>
+          <p className="text-xs font-medium" style={{ color: accent }}>Organizer Portal</p>
         </div>
       </div>
 
@@ -142,10 +152,11 @@ function SidebarContent({ navItems, pathname, setSidebarOpen, handleSignOut }: a
                 href={item.href}
                 prefetch={true}
                 onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all group ${
-                  isActive 
-                    ? 'bg-cyan-500/10 text-cyan-400 border-l-2 border-cyan-400' 
-                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-white border-l-2 border-transparent'
+                style={isActive ? { color: accent, borderLeftColor: accent, backgroundColor: `${accent}1a` } : undefined}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all group border-l-2 ${
+                  isActive
+                    ? ''
+                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-white border-transparent'
                 }`}
               >
                 <item.icon className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-110'}`} />
@@ -157,13 +168,14 @@ function SidebarContent({ navItems, pathname, setSidebarOpen, handleSignOut }: a
       </nav>
 
       <div className="p-4 border-t border-slate-800 space-y-1 bg-slate-900">
-        <Link 
+        <Link
           href="/organizer/settings"
           onClick={() => setSidebarOpen(false)}
-          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all group ${
+          style={pathname.startsWith('/organizer/settings') ? { color: accent, borderLeftColor: accent, backgroundColor: `${accent}1a` } : undefined}
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all group border-l-2 ${
             pathname.startsWith('/organizer/settings')
-              ? 'bg-cyan-500/10 text-cyan-400 border-l-2 border-cyan-400'
-              : 'text-slate-400 hover:bg-slate-800/50 hover:text-white border-l-2 border-transparent'
+              ? ''
+              : 'text-slate-400 hover:bg-slate-800/50 hover:text-white border-transparent'
           }`}
         >
           <Settings className={`w-5 h-5 transition-transform duration-300 ${pathname.startsWith('/organizer/settings') ? 'scale-110' : 'group-hover:rotate-90'}`} />

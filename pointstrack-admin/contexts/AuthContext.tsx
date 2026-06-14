@@ -46,7 +46,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       const me = await fetchMe();
       setUser(me.user);
-      setProfile(me.profile);
+      // The organizer portal works off the club profile (an account may be a
+      // plain student with no club — then there's nothing to manage here).
+      setProfile(me.club ?? null);
     } catch (error) {
       // Token invalid/expired and refresh failed → treat as logged out.
       clearTokens();
@@ -60,7 +62,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const refreshProfile = async () => {
     try {
       const me = await fetchMe();
-      setProfile(me.profile);
+      setProfile(me.club ?? null);
     } catch (error) {
       console.error('Failed to refresh profile:', error);
     }
@@ -76,18 +78,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // is public and must render for logged-out visitors.
   const isOrganizerRoute = pathname.startsWith('/organizer');
   const isAuthRoute = pathname === '/organizer/login' || pathname === '/organizer/register';
+  const isCreateClubRoute = pathname === '/organizer/create-club';
+  // Needs a login, but NOT a club yet (that's where we send club-less accounts).
+  const needsAuthOnly = isCreateClubRoute;
   const isProtected = isOrganizerRoute && !isAuthRoute;
 
-  // Handle redirects based on auth state and current path.
+  // Handle redirects based on auth state, club ownership, and current path.
   useEffect(() => {
     if (loading) return;
 
-    if (user && isAuthRoute) {
-      router.push('/organizer/dashboard');
-    } else if (!user && isProtected) {
-      router.push('/organizer/login');
+    if (!user) {
+      if (isProtected) router.push('/organizer/login');
+      return;
     }
-  }, [user, loading, isAuthRoute, isProtected, router]);
+
+    // Logged in. An account becomes an "organizer" by creating a club; until
+    // then, funnel them to the create-club onboarding instead of the dashboard.
+    const hasClub = !!profile;
+    if (!hasClub && isProtected && !needsAuthOnly) {
+      router.push('/organizer/create-club');
+    } else if (hasClub && (isAuthRoute || isCreateClubRoute)) {
+      router.push('/organizer/dashboard');
+    } else if (isAuthRoute) {
+      // Logged in with no club, sitting on login/register → go create one.
+      router.push('/organizer/create-club');
+    }
+  }, [user, profile, loading, isAuthRoute, isCreateClubRoute, needsAuthOnly, isProtected, router]);
 
   // Gate only protected routes on the auth check; marketing pages render at once.
   return (

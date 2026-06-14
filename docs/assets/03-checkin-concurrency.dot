@@ -1,0 +1,37 @@
+digraph CheckinConcurrency {
+  rankdir=TB;
+  bgcolor="white";
+  fontname="Liberation Sans";
+  labelloc="t";
+  label=<<FONT POINT-SIZE="22"><B>Concurrency-Safe Check-in → Points Award</B></FONT><BR/><FONT POINT-SIZE="11" COLOR="#64748B">Row lock + unique index = points awarded exactly once, even under a storm of double-taps</FONT><BR/> >;
+  node [fontname="Liberation Sans", shape=box, style="rounded,filled", fontsize=11, margin="0.16,0.1", color="#CBD5E1"];
+  edge [fontname="Liberation Sans", fontsize=10, color="#475569", penwidth=1.3, arrowsize=0.8];
+  nodesep=0.5; ranksep=0.5;
+
+  burst [label=<<B>N concurrent check-ins</B><BR/><FONT POINT-SIZE="9" COLOR="#475569">12 double-taps / 2 scanners on one student</FONT>>, fillcolor="#FEE2E2", color="#DC2626", shape=box, style="rounded,filled"];
+
+  begin [label=<<B>BEGIN transaction</B>>, fillcolor="#EEF2FF", color="#6366F1"];
+  lock  [label=<<B>SELECT … FOR UPDATE</B><BR/><FONT POINT-SIZE="9" COLOR="#475569">lock the attendee row → requests serialise here</FONT>>, fillcolor="#E0E7FF", color="#4F46E5"];
+  check [label=<<B>Already checked-in?</B>>, shape=diamond, fillcolor="#FEF9C3", color="#CA8A04", style="filled"];
+  insert [label=<<B>INSERT points_ledger</B><BR/><FONT POINT-SIZE="9" COLOR="#475569">ON CONFLICT (attendee_id) DO NOTHING</FONT>>, fillcolor="#DCFCE7", color="#16A34A"];
+  skip  [label=<<B>No-op</B><BR/><FONT POINT-SIZE="9" COLOR="#475569">return existing — 0 new rows</FONT>>, fillcolor="#F1F5F9", color="#94A3B8"];
+  commit [label=<<B>COMMIT</B> · release lock>, fillcolor="#EEF2FF", color="#6366F1"];
+
+  after [label=<<B>After commit (never under lock)</B><BR/><FONT POINT-SIZE="9" COLOR="#475569">push notification · waitlist promotion</FONT>>, fillcolor="#CCFBF1", color="#0D9488"];
+
+  result [label=<<B>Result: 1 ledger row · 50 pts</B><BR/><FONT POINT-SIZE="9" COLOR="#15803D">verified live — not 12 rows / 600 pts</FONT>>, fillcolor="#DCFCE7", color="#15803D", penwidth=2];
+
+  burst -> begin [label="each request"];
+  begin -> lock;
+  lock -> check;
+  check -> insert [label="first one only", fontcolor="#16A34A"];
+  check -> skip [label="the other 11", fontcolor="#94A3B8"];
+  insert -> commit;
+  skip -> commit;
+  commit -> after [label="only if awarded", style=dashed];
+  commit -> result;
+
+  backstop [label=<<B>DB backstop</B><BR/><FONT POINT-SIZE="9" COLOR="#475569">UNIQUE(attendee_id) makes a<BR/>double-award impossible even if logic slips</FONT>>, shape=note, fillcolor="#FFF7ED", color="#EA580C"];
+  insert -> backstop [style=dotted, dir=none, color="#EA580C"];
+  { rank=same; insert; skip; }
+}

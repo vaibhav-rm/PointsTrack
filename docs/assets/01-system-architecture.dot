@@ -1,0 +1,43 @@
+digraph SystemArchitecture {
+  rankdir=TB;
+  bgcolor="white";
+  fontname="Liberation Sans";
+  labelloc="t";
+  label=<<FONT POINT-SIZE="22"><B>PointsTrack — System Architecture</B></FONT><BR/><FONT POINT-SIZE="11" COLOR="#64748B">Two clients · one stateless API · Postgres + object storage · push &amp; email</FONT><BR/> >;
+  node [fontname="Liberation Sans", shape=box, style="rounded,filled", fontsize=12, margin="0.18,0.12", color="#CBD5E1", penwidth=1.4];
+  edge [fontname="Liberation Sans", fontsize=10, color="#475569", penwidth=1.3, arrowsize=0.8];
+  nodesep=0.55; ranksep=0.75;
+
+  subgraph cluster_clients {
+    label=<<B>Clients</B>>; fontname="Liberation Sans"; fontsize=13; fontcolor="#334155";
+    style="rounded,filled"; color="#E2E8F0"; fillcolor="#F8FAFC";
+    mobile [label=<<B>PointsTrack (mobile)</B><BR/><FONT POINT-SIZE="10" COLOR="#475569">React Native + Expo<BR/>students &amp; organizers · QR scan</FONT>>, fillcolor="#EEF2FF", color="#6366F1"];
+    web    [label=<<B>pointstrack-admin (web)</B><BR/><FONT POINT-SIZE="10" COLOR="#475569">Next.js + Tailwind<BR/>organizer dashboard · landing</FONT>>, fillcolor="#EEF2FF", color="#6366F1"];
+  }
+
+  api [label=<<B>pointstrack-api</B><BR/><FONT POINT-SIZE="10" COLOR="#E0E7FF">Express + TypeScript · stateless<BR/>JWT auth · RBAC · Zod validation<BR/>rate limiting · gzip · transactional writes</FONT>>, shape=box, style="rounded,filled", fillcolor="#4F46E5", fontcolor="white", color="#3730A3", penwidth=2];
+
+  subgraph cluster_data {
+    label=<<B>Data &amp; storage</B>>; fontname="Liberation Sans"; fontsize=13; fontcolor="#334155";
+    style="rounded,filled"; color="#E2E8F0"; fillcolor="#F8FAFC";
+    pg [label=<<B>PostgreSQL</B><BR/><FONT POINT-SIZE="10" COLOR="#475569">Drizzle ORM · indexed<BR/>unique constraints · row locks</FONT>>, shape=cylinder, fillcolor="#E0F2FE", color="#0369A1"];
+    obj [label=<<B>Object storage (S3/R2)</B><BR/><FONT POINT-SIZE="10" COLOR="#475569">certificates &amp; images<BR/>local disk in dev</FONT>>, fillcolor="#FEF9C3", color="#CA8A04"];
+  }
+
+  subgraph cluster_ext {
+    label=<<B>External services</B>>; fontname="Liberation Sans"; fontsize=13; fontcolor="#334155";
+    style="rounded,filled"; color="#E2E8F0"; fillcolor="#F8FAFC";
+    push [label=<<B>Expo Push</B><BR/><FONT POINT-SIZE="10" COLOR="#475569">event &amp; points alerts</FONT>>, fillcolor="#CCFBF1", color="#0D9488"];
+    mail [label=<<B>Email (SMTP)</B><BR/><FONT POINT-SIZE="10" COLOR="#475569">password reset</FONT>>, fillcolor="#CCFBF1", color="#0D9488"];
+  }
+
+  mobile -> api [label="HTTPS + JWT", fontcolor="#4338CA"];
+  web    -> api [label="HTTPS + JWT", fontcolor="#4338CA"];
+  api -> pg  [label="SQL (pooled)"];
+  api -> obj [label="put / stream"];
+  api -> push [style=dashed, label="async"];
+  api -> mail [style=dashed, label="async"];
+
+  { rank=same; mobile; web; }
+  { rank=same; pg; obj; }
+}

@@ -52,6 +52,17 @@ export const organizers = pgTable('organizers', {
   coreTeam: text('core_team'),
   logo: text('logo'),
   coverImage: text('cover_image'),
+  // Brand accent (hex, e.g. "#4F46E5") chosen by the organizer. Themes the public
+  // club page (mobile) and the organizer's private dashboard. Null → default indigo.
+  accentColor: text('accent_color'),
+  // ---- Public club-page customization ----
+  links: jsonb('links').$type<{ type: string; url: string }[]>().notNull().default([]),
+  gallery: jsonb('gallery').$type<string[]>().notNull().default([]),
+  announcement: text('announcement'),
+  announcementLink: text('announcement_link'),
+  coverStyle: text('cover_style'), // 'gradient' (accent→secondary) | 'solid'
+  secondaryColor: text('secondary_color'),
+  hiddenSections: jsonb('hidden_sections').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -192,6 +203,32 @@ export const pointsLedger = pgTable(
   })
 );
 
+// ---- Event volunteers ----
+// Students an organizer has authorised to scan/check-in attendees for one of
+// their events. The event owner can always scan; volunteers are the extra
+// helpers. (Volunteers are ordinary students — everyone is a student.)
+export const eventVolunteers = pgTable(
+  'event_volunteers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => eventsCatalog.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => students.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    eventIdx: index('event_volunteers_event_idx').on(t.eventId),
+    studentIdx: index('event_volunteers_student_idx').on(t.studentId),
+    eventStudentUnique: uniqueIndex('event_volunteers_event_student_unique').on(
+      t.eventId,
+      t.studentId
+    ),
+  })
+);
+
 // ---- Refresh tokens (rotation + revocation) ----
 export const refreshTokens = pgTable(
   'refresh_tokens',
@@ -218,3 +255,4 @@ export type Student = typeof students.$inferSelect;
 export type EventCatalog = typeof eventsCatalog.$inferSelect;
 export type Attendee = typeof attendees.$inferSelect;
 export type PointsLedgerRow = typeof pointsLedger.$inferSelect;
+export type EventVolunteer = typeof eventVolunteers.$inferSelect;

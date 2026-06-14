@@ -155,7 +155,32 @@ export interface OrganizerProfile {
   coreTeam?: string | null
   logo?: string | null
   coverImage?: string | null
+  accentColor?: string | null
+  // ---- Public club-page customization ----
+  links?: { type: string; url: string }[]
+  gallery?: string[]
+  announcement?: string | null
+  announcementLink?: string | null
+  coverStyle?: 'gradient' | 'solid' | null
+  secondaryColor?: string | null
+  hiddenSections?: string[]
 }
+
+// Default brand accent when an organizer hasn't picked one.
+export const DEFAULT_ACCENT = '#06B6D4'
+
+// Link types we render with a known icon on the club page.
+export const LINK_TYPES = ['website', 'instagram', 'whatsapp', 'email', 'twitter', 'linkedin', 'youtube', 'facebook'] as const
+
+// Public club-page sections that can be shown/hidden.
+export const CLUB_SECTIONS = [
+  { key: 'announcement', label: 'Announcement' },
+  { key: 'about', label: 'About / bio' },
+  { key: 'stats', label: 'Established & team' },
+  { key: 'links', label: 'Links' },
+  { key: 'gallery', label: 'Photo gallery' },
+  { key: 'events', label: 'Events' },
+] as const
 
 interface AuthResponse {
   accessToken: string
@@ -186,8 +211,31 @@ export async function registerOrganizer(payload: {
   return data
 }
 
-export async function fetchMe(): Promise<{ user: AuthUser; profile: OrganizerProfile }> {
+// Every account is a student that may also own a club. The organizer portal
+// treats the club as the working profile; `profile` is the student record.
+export async function fetchMe(): Promise<{ user: AuthUser; profile: unknown; club: OrganizerProfile | null }> {
   return api.get('/auth/me')
+}
+
+// ---- Event volunteers (students authorised to scan an event) ----
+export interface Volunteer {
+  studentId: string
+  name: string
+  email: string
+  usn: string
+  addedAt?: string
+}
+
+export async function listVolunteers(eventId: string): Promise<Volunteer[]> {
+  return api.get(`/events/${eventId}/volunteers`)
+}
+
+export async function addVolunteer(eventId: string, by: { usn?: string; email?: string }): Promise<Volunteer> {
+  return api.post(`/events/${eventId}/volunteers`, by)
+}
+
+export async function removeVolunteer(eventId: string, studentId: string): Promise<void> {
+  await api.del(`/events/${eventId}/volunteers/${studentId}`)
 }
 
 export async function logout(): Promise<void> {

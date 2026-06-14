@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
+import VolunteersCard from '@/components/organizer/VolunteersCard'
 import toast from 'react-hot-toast'
 
 export default function EventDetailPage() {
@@ -203,6 +204,9 @@ export default function EventDetailPage() {
         <Stat label="Waitlisted" value={waitlisted} color="text-orange-400" />
         <Stat label="Points awarded" value={pointsAwarded} color="text-cyan-400" />
       </div>
+
+      {/* Volunteer scanning */}
+      <VolunteersCard eventId={id} />
 
       {/* Attendees */}
       <div>

@@ -1,0 +1,79 @@
+digraph DataModel {
+  rankdir=LR;
+  bgcolor="white";
+  fontname="Liberation Sans";
+  labelloc="t";
+  label=<<FONT POINT-SIZE="22"><B>Data Model</B></FONT><BR/><FONT POINT-SIZE="11" COLOR="#64748B">One identity → two profiles · events · attendees · points ledger · refresh tokens</FONT><BR/> >;
+  node [shape=plaintext, fontname="Liberation Sans"];
+  edge [fontname="Liberation Sans", fontsize=10, color="#475569", penwidth=1.4, arrowsize=0.9, arrowhead=crow, arrowtail=none];
+  nodesep=0.5; ranksep=1.0;
+
+  accounts [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#4F46E5"><FONT COLOR="white"><B>accounts</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">id (PK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">email · <B>UNIQUE</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">password_hash (bcrypt)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">role: organizer | student</FONT></TD></TR>
+    </TABLE>>];
+
+  organizers [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#6366F1"><FONT COLOR="white"><B>organizers</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">id (PK, FK→accounts)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">club_name · college</FONT></TD></TR>
+    </TABLE>>];
+
+  students [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#6366F1"><FONT COLOR="white"><B>students</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">id (PK, FK→accounts)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">college (idx) · usn (idx)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">required_points · push_token</FONT></TD></TR>
+    </TABLE>>];
+
+  events [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#0EA5E9"><FONT COLOR="white"><B>events_catalog</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">id (PK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">organizer_id (idx, FK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">capacity · points</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">target_college (idx)</FONT></TD></TR>
+    </TABLE>>];
+
+  attendees [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#0D9488"><FONT COLOR="white"><B>attendees</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">id (PK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">event_id (idx, FK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">student_id (idx, FK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#B91C1C"><B>UNIQUE(event_id, student_id)</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">status · points_awarded</FONT></TD></TR>
+    </TABLE>>];
+
+  ledger [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#0D9488"><FONT COLOR="white"><B>points_ledger</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">id (PK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">student_id (idx, FK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#B91C1C"><B>attendee_id · UNIQUE</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">points · date · type</FONT></TD></TR>
+    </TABLE>>];
+
+  tokens [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#64748B"><FONT COLOR="white"><B>refresh_tokens</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">account_id (idx, FK)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">token_hash (idx) · expires_at</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#1E293B">revoked_at</FONT></TD></TR>
+    </TABLE>>];
+
+  accounts -> organizers [label="1:1"];
+  accounts -> students   [label="1:1"];
+  accounts -> tokens     [label="1:N"];
+  organizers -> events   [label="1:N"];
+  students -> attendees  [label="1:N"];
+  events -> attendees    [label="1:N"];
+  attendees -> ledger    [label="1:1 award", color="#B91C1C", fontcolor="#B91C1C"];
+  students -> ledger     [label="1:N"];
+}

@@ -27,6 +27,31 @@ const EventDetailsScreen = () => {
   const [hasApplied, setHasApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
 
+  // Owner manages; an assigned volunteer can scan; everyone else applies.
+  const [scanAccess, setScanAccess] = useState<{ isOwner: boolean; isVolunteer: boolean; canScan: boolean } | null>(null);
+  const [eventAttendees, setEventAttendees] = useState<any[]>([]);
+  const isOwner = scanAccess?.isOwner ?? isCreator;
+  const canScan = scanAccess?.canScan ?? isCreator;
+
+  useEffect(() => {
+    api
+      .get<{ isOwner: boolean; isVolunteer: boolean; canScan: boolean }>(`/events/${event.id}/scan-access`)
+      .then(setScanAccess)
+      .catch(() => {});
+  }, [event.id]);
+
+  // Owners get a live attendee list + counts (the "manage" essentials).
+  useEffect(() => {
+    if (!isOwner) return;
+    api
+      .get<any[]>(`/attendees?eventId=${event.id}`)
+      .then(setEventAttendees)
+      .catch(() => {});
+  }, [isOwner, event.id]);
+
+  const checkedInCount = eventAttendees.filter((a) => a.status === 'checked-in').length;
+  const waitlistedCount = eventAttendees.filter((a) => a.status === 'waitlisted').length;
+
   useEffect(() => {
     // Check if the student already applied to this event.
     const checkApplication = async () => {
@@ -229,7 +254,7 @@ const EventDetailsScreen = () => {
 
           {/* Open full image if it exists */}
           {event.certificateUrl && (
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => Linking.openURL(event.certificateUrl!)}
               className="flex-row items-center justify-center bg-gray-100 dark:bg-darkCard py-4 rounded-xl border border-gray-200 dark:border-gray-800"
             >
@@ -240,22 +265,82 @@ const EventDetailsScreen = () => {
             </TouchableOpacity>
           )}
 
+          {/* Owner-only: live counts + attendee list ("manage" essentials). */}
+          {isOwner && (
+            <View className="mt-2">
+              <View className="flex-row gap-3 mb-4">
+                <View className="flex-1 bg-gray-50 dark:bg-darkCard p-3 rounded-2xl border border-gray-100 dark:border-gray-800">
+                  <Text className="text-2xl font-pbold text-textPrimary dark:text-white">{eventAttendees.length}</Text>
+                  <Text className="text-xs text-textSecondary dark:text-gray-400 font-pmedium">Registered</Text>
+                </View>
+                <View className="flex-1 bg-gray-50 dark:bg-darkCard p-3 rounded-2xl border border-gray-100 dark:border-gray-800">
+                  <Text className="text-2xl font-pbold text-success">{checkedInCount}</Text>
+                  <Text className="text-xs text-textSecondary dark:text-gray-400 font-pmedium">Checked in</Text>
+                </View>
+                <View className="flex-1 bg-gray-50 dark:bg-darkCard p-3 rounded-2xl border border-gray-100 dark:border-gray-800">
+                  <Text className="text-2xl font-pbold text-orange-500">{waitlistedCount}</Text>
+                  <Text className="text-xs text-textSecondary dark:text-gray-400 font-pmedium">Waitlisted</Text>
+                </View>
+              </View>
+
+              <Text className="text-lg font-pbold text-textPrimary dark:text-white mb-2">Attendees</Text>
+              {eventAttendees.length === 0 ? (
+                <View className="items-center justify-center py-6 bg-gray-50 dark:bg-darkCard rounded-2xl border border-gray-100 dark:border-gray-800 border-dashed">
+                  <Text className="text-textSecondary dark:text-gray-400 font-pmedium">No one has registered yet.</Text>
+                </View>
+              ) : (
+                eventAttendees.map((a) => (
+                  <View key={a.id} className="flex-row items-center justify-between bg-white dark:bg-darkCard p-3 rounded-xl mb-2 border border-gray-100 dark:border-gray-800">
+                    <View className="flex-1 mr-2">
+                      <Text className="text-textPrimary dark:text-white font-psemibold" numberOfLines={1}>{a.name}</Text>
+                      <Text className="text-textSecondary dark:text-gray-400 text-xs" numberOfLines={1}>{a.email}</Text>
+                    </View>
+                    <View className={`px-2.5 py-1 rounded-full ${a.status === 'checked-in' ? 'bg-success/15' : a.status === 'waitlisted' ? 'bg-orange-500/15' : 'bg-gray-200 dark:bg-gray-700'}`}>
+                      <Text className={`text-xs font-pbold ${a.status === 'checked-in' ? 'text-success' : a.status === 'waitlisted' ? 'text-orange-500' : 'text-textSecondary dark:text-gray-300'}`}>
+                        {a.status === 'checked-in' ? 'Checked in' : a.status === 'waitlisted' ? 'Waitlist' : 'Pending'}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
+              <Text className="text-xs text-textSecondary dark:text-gray-500 font-pregular mt-2 mb-2">
+                Edit details and approve registrations on the web dashboard.
+              </Text>
+            </View>
+          )}
+
         </View>
       </ScrollView>
 
-      {/* Sticky bottom action: organizers scan attendees, students apply. */}
-      {event.organizerId && isCreator && (
+      {/* Sticky bottom action: owners manage + scan, volunteers scan, students apply. */}
+      {isOwner ? (
+        <View className="px-6 py-4 bg-background dark:bg-darkBackground border-t border-gray-100 dark:border-gray-800 flex-row gap-3">
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ManageVolunteers', { eventId: event.id, eventTitle: event.title })}
+            className="flex-1 py-4 rounded-xl flex-row items-center justify-center border border-primary dark:border-indigo-500"
+          >
+            <Ionicons name="people-outline" size={20} color={isDark ? '#818CF8' : '#4F46E5'} />
+            <Text className="text-primary dark:text-indigo-400 font-pbold text-base ml-2">Volunteers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ScanAttendee', { eventId: event.id, eventTitle: event.title })}
+            className="flex-1 py-4 rounded-xl flex-row items-center justify-center shadow-sm bg-primary dark:bg-indigo-500"
+          >
+            <Ionicons name="qr-code-outline" size={20} color="white" />
+            <Text className="text-white font-pbold text-base ml-2">Scan</Text>
+          </TouchableOpacity>
+        </View>
+      ) : canScan ? (
         <View className="px-6 py-4 bg-background dark:bg-darkBackground border-t border-gray-100 dark:border-gray-800">
           <TouchableOpacity
             onPress={() => navigation.navigate('ScanAttendee', { eventId: event.id, eventTitle: event.title })}
             className="w-full py-4 rounded-xl flex-row items-center justify-center shadow-sm bg-primary dark:bg-indigo-500"
           >
             <Ionicons name="qr-code-outline" size={20} color="white" />
-            <Text className="text-white font-pbold text-lg ml-2">Scan Attendees</Text>
+            <Text className="text-white font-pbold text-lg ml-2">Scan Attendees (Volunteer)</Text>
           </TouchableOpacity>
         </View>
-      )}
-      {event.organizerId && !isCreator && (
+      ) : event.organizerId ? (
         <View className="px-6 py-4 bg-background dark:bg-darkBackground border-t border-gray-100 dark:border-gray-800">
           <TouchableOpacity
             onPress={handleApply}
@@ -285,7 +370,7 @@ const EventDetailsScreen = () => {
             )}
           </TouchableOpacity>
         </View>
-      )}
+      ) : null}
     </SafeAreaView>
   );
 };

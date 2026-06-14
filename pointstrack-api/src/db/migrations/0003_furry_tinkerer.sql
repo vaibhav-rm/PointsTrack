@@ -1,0 +1,1 @@
+ALTER TABLE "organizers" ADD COLUMN "accent_color" text;

@@ -63,6 +63,8 @@ async function issueTokens(account: { id: string; email: string; role: 'organize
 }
 
 // ---- Register: organizer ----
+// Every account is a student; an organizer is a student who also owns a club.
+// So this creates BOTH a student profile and a club, sharing one account id.
 authRouter.post(
   '/register/organizer',
   asyncHandler(async (req, res) => {
@@ -72,9 +74,22 @@ authRouter.post(
     const result = await db.transaction(async (tx) => {
       const [account] = await tx
         .insert(accounts)
-        .values({ email: data.email, passwordHash, role: 'organizer' })
+        .values({ email: data.email, passwordHash, role: 'student' })
         .returning();
-      const [profile] = await tx
+      // Student profile (synthesised where the club form doesn't ask). The
+      // organizer can complete these fields later in the app/settings.
+      const [student] = await tx
+        .insert(students)
+        .values({
+          id: account.id,
+          name: data.fullName || data.clubName,
+          email: data.email,
+          college: data.college,
+          usn: `ORG-${account.id.slice(0, 8)}`,
+          requiredPoints: 100,
+        })
+        .returning();
+      const [club] = await tx
         .insert(organizers)
         .values({
           id: account.id,
@@ -87,14 +102,15 @@ authRouter.post(
           coreTeam: data.coreTeam,
         })
         .returning();
-      return { account, profile };
+      return { account, student, club };
     });
 
     const tokens = await issueTokens(result.account);
     res.status(201).json({
       ...tokens,
-      user: { id: result.account.id, email: result.account.email, role: 'organizer' },
-      profile: result.profile,
+      user: { id: result.account.id, email: result.account.email, role: 'student' },
+      profile: result.student,
+      club: result.club,
     });
   })
 );
@@ -155,16 +171,16 @@ authRouter.post(
     const ok = await verifyPassword(data.password, account.passwordHash);
     if (!ok) throw unauthorized('Invalid email or password');
 
-    const profile =
-      account.role === 'organizer'
-        ? (await db.select().from(organizers).where(eq(organizers.id, account.id)))[0]
-        : (await db.select().from(students).where(eq(students.id, account.id)))[0];
+    // Everyone is a student; some also own a club. Return both.
+    const [profile] = await db.select().from(students).where(eq(students.id, account.id));
+    const [club] = await db.select().from(organizers).where(eq(organizers.id, account.id));
 
     const tokens = await issueTokens(account);
     res.json({
       ...tokens,
       user: { id: account.id, email: account.email, role: account.role },
       profile,
+      club: club ?? null,
     });
   })
 );
@@ -245,12 +261,10 @@ authRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const { sub, role, email } = req.auth!;
-    const profile =
-      role === 'organizer'
-        ? (await db.select().from(organizers).where(eq(organizers.id, sub)))[0]
-        : (await db.select().from(students).where(eq(students.id, sub)))[0];
-    if (!profile) throw notFound('Profile not found');
-    res.json({ user: { id: sub, email, role }, profile });
+    const [profile] = await db.select().from(students).where(eq(students.id, sub));
+    const [club] = await db.select().from(organizers).where(eq(organizers.id, sub));
+    if (!profile && !club) throw notFound('Profile not found');
+    res.json({ user: { id: sub, email, role }, profile: profile ?? null, club: club ?? null });
   })
 );
 

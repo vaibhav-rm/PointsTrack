@@ -7,6 +7,7 @@ import {
   eventsCatalog,
   students,
   pointsLedger,
+  eventVolunteers,
 } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
@@ -232,14 +233,21 @@ const qrCheckinSchema = z.object({
 
 attendeesRouter.post(
   '/checkin-by-qr',
-  requireAuth,
-  requireRole('organizer'),
+  requireAuth, // the event owner OR an assigned volunteer may scan
   asyncHandler(async (req, res) => {
     const { eventId, studentId } = parseBody(qrCheckinSchema, req);
 
     const [event] = await db.select().from(eventsCatalog).where(eq(eventsCatalog.id, eventId));
     if (!event) throw notFound('Event not found');
-    if (event.organizerId !== req.auth!.sub) throw forbidden('Not your event');
+
+    // Authorise: you must own this event, or be an assigned volunteer for it.
+    if (event.organizerId !== req.auth!.sub) {
+      const [vol] = await db
+        .select({ id: eventVolunteers.id })
+        .from(eventVolunteers)
+        .where(and(eq(eventVolunteers.eventId, eventId), eq(eventVolunteers.studentId, req.auth!.sub)));
+      if (!vol) throw forbidden('You are not authorised to scan for this event');
+    }
 
     const [student] = await db.select().from(students).where(eq(students.id, studentId));
     if (!student) throw notFound('Student not found');
@@ -326,7 +334,6 @@ attendeesRouter.get(
 attendeesRouter.get(
   '/',
   requireAuth,
-  requireRole('organizer'),
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req);
     const eventId = (req.query.eventId as string) || undefined;
@@ -363,7 +370,6 @@ const bulkSchema = z.object({
 attendeesRouter.patch(
   '/bulk',
   requireAuth,
-  requireRole('organizer'),
   asyncHandler(async (req, res) => {
     const { ids, status, engagement } = parseBody(bulkSchema, req);
 
@@ -384,7 +390,6 @@ attendeesRouter.patch(
 attendeesRouter.patch(
   '/:id',
   requireAuth,
-  requireRole('organizer'),
   asyncHandler(async (req, res) => {
     const { status, engagement } = parseBody(statusSchema, req);
 
