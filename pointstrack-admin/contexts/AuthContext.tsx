@@ -8,52 +8,82 @@ import {
   clearTokens,
   type AuthUser,
   type OrganizerProfile,
+  type Club,
 } from '@/lib/api';
 
 interface AuthContextType {
   user: AuthUser | null;
   profile: OrganizerProfile | null;
+  clubs: Club[];
+  selectedClub: Club | null;
   loading: boolean;
   setProfile: (profile: OrganizerProfile) => void;
+  selectClub: (club: Club) => void;
   refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
+  clubs: [],
+  selectedClub: null,
   loading: true,
   setProfile: () => {},
+  selectClub: () => {},
   refreshProfile: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
+const SELECTED_CLUB_KEY = 'pointstrack_selected_club_id';
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<OrganizerProfile | null>(null);
+  const [clubs, setClubs] = useState<Club[]>([]);
+  const [selectedClub, setSelectedClub] = useState<Club | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
   const loadSession = async () => {
-    // No token at all → definitely logged out, skip the network call.
     if (!getAccessToken()) {
       setUser(null);
       setProfile(null);
+      setClubs([]);
+      setSelectedClub(null);
+      if (typeof window !== 'undefined') localStorage.removeItem(SELECTED_CLUB_KEY);
       setLoading(false);
       return;
     }
     try {
       const me = await fetchMe();
       setUser(me.user);
-      // The organizer portal works off the club profile (an account may be a
-      // plain student with no club — then there's nothing to manage here).
       setProfile(me.club ?? null);
+
+      const userClubs = me.clubs || [];
+      setClubs(userClubs);
+
+      // Restore stored club selection if user is an active member, otherwise fallback
+      const storedId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_CLUB_KEY) : null;
+      const validStoredClub = userClubs.find((c) => c.id === storedId);
+
+      if (validStoredClub) {
+        setSelectedClub(validStoredClub);
+      } else if (userClubs.length > 0) {
+        setSelectedClub(userClubs[0]);
+        if (typeof window !== 'undefined') localStorage.setItem(SELECTED_CLUB_KEY, userClubs[0].id);
+      } else {
+        setSelectedClub(null);
+        if (typeof window !== 'undefined') localStorage.removeItem(SELECTED_CLUB_KEY);
+      }
     } catch (error) {
-      // Token invalid/expired and refresh failed → treat as logged out.
       clearTokens();
       setUser(null);
       setProfile(null);
+      setClubs([]);
+      setSelectedClub(null);
+      if (typeof window !== 'undefined') localStorage.removeItem(SELECTED_CLUB_KEY);
     } finally {
       setLoading(false);
     }
@@ -63,27 +93,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       const me = await fetchMe();
       setProfile(me.club ?? null);
+      setClubs(me.clubs || []);
+      const userClubs = me.clubs || [];
+      const storedId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_CLUB_KEY) : null;
+      const validStoredClub = userClubs.find((c) => c.id === storedId);
+
+      if (validStoredClub) {
+        setSelectedClub(validStoredClub);
+      } else if (userClubs.length > 0) {
+        setSelectedClub(userClubs[0]);
+      }
     } catch (error) {
       console.error('Failed to refresh profile:', error);
     }
   };
 
-  // Re-check the session whenever the path changes (cheap once token is gone).
+  const selectClub = (club: Club) => {
+    setSelectedClub(club);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(SELECTED_CLUB_KEY, club.id);
+    }
+  };
+
+  // Run session initialization ONCE on mount (prevent unnecessary /auth/me refetch on route change)
   useEffect(() => {
     loadSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
+  }, []);
 
-  // Only the organizer portal is gated. Everything else (the marketing site)
-  // is public and must render for logged-out visitors.
   const isOrganizerRoute = pathname.startsWith('/organizer');
   const isAuthRoute = pathname === '/organizer/login' || pathname === '/organizer/register';
   const isCreateClubRoute = pathname === '/organizer/create-club';
-  // Needs a login, but NOT a club yet (that's where we send club-less accounts).
   const needsAuthOnly = isCreateClubRoute;
   const isProtected = isOrganizerRoute && !isAuthRoute;
 
-  // Handle redirects based on auth state, club ownership, and current path.
   useEffect(() => {
     if (loading) return;
 
@@ -92,22 +134,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    // Logged in. An account becomes an "organizer" by creating a club; until
-    // then, funnel them to the create-club onboarding instead of the dashboard.
-    const hasClub = !!profile;
+    const hasClub = !!profile || clubs.length > 0;
     if (!hasClub && isProtected && !needsAuthOnly) {
       router.push('/organizer/create-club');
     } else if (hasClub && (isAuthRoute || isCreateClubRoute)) {
       router.push('/organizer/dashboard');
     } else if (isAuthRoute) {
-      // Logged in with no club, sitting on login/register → go create one.
       router.push('/organizer/create-club');
     }
-  }, [user, profile, loading, isAuthRoute, isCreateClubRoute, needsAuthOnly, isProtected, router]);
+  }, [user, profile, clubs, loading, isAuthRoute, isCreateClubRoute, needsAuthOnly, isProtected, router]);
 
-  // Gate only protected routes on the auth check; marketing pages render at once.
   return (
-    <AuthContext.Provider value={{ user, profile, loading, setProfile, refreshProfile }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        clubs,
+        selectedClub,
+        loading,
+        setProfile,
+        selectClub,
+        refreshProfile,
+      }}
+    >
       {isProtected && loading ? null : children}
     </AuthContext.Provider>
   );

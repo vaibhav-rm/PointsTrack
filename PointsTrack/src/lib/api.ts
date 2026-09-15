@@ -190,6 +190,29 @@ export async function fetchMe(): Promise<{ user: AuthUser; profile: StudentProfi
   return api.get('/auth/me');
 }
 
+export interface CollegeItem {
+  id?: string;
+  name: string;
+  code: string;
+  vtuCode?: string;
+  region: string;
+}
+
+export async function fetchColleges(query?: { search?: string; region?: string }): Promise<CollegeItem[]> {
+  const params = new URLSearchParams();
+  if (query?.search) params.append('search', query.search);
+  if (query?.region) params.append('region', query.region);
+  const qs = params.toString();
+  const rows = await api.get<any[]>(`/colleges${qs ? `?${qs}` : ''}`);
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    code: r.vtuCode || r.shortName || '',
+    vtuCode: r.vtuCode || undefined,
+    region: r.region || 'Bangalore',
+  }));
+}
+
 export async function forgotPassword(email: string): Promise<void> {
   await api.post('/auth/forgot-password', { email });
 }

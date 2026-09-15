@@ -35,13 +35,30 @@ const RegisterScreen = () => {
   const [semester, setSemester] = useState("");
   const [isLateralEntry, setIsLateralEntry] = useState(false);
 
+  const [dynamicColleges, setDynamicColleges] = useState<College[]>([]);
+
+  React.useEffect(() => {
+    if (!region) return;
+    const { fetchColleges } = require('../../lib/api');
+    fetchColleges({ region, search: collegeSearch })
+      .then((list: any[]) => {
+        if (list && list.length > 0) {
+          setDynamicColleges(list);
+        }
+      })
+      .catch(() => {});
+  }, [region, collegeSearch]);
+
   const filteredColleges = useMemo(() => {
     if (!region) return [];
+    if (dynamicColleges.length > 0) {
+      return dynamicColleges;
+    }
     return COLLEGES.filter(c => 
       c.region === region && 
       c.name.toLowerCase().includes(collegeSearch.toLowerCase())
     );
-  }, [region, collegeSearch]);
+  }, [region, collegeSearch, dynamicColleges]);
 
   const handleRegister = async () => {
       // ... (keep validation logic)

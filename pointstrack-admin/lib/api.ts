@@ -51,8 +51,6 @@ async function parseError(res: Response): Promise<string> {
   return res.statusText || 'Request failed'
 }
 
-// Attempts a single refresh of the access token. Returns the new access token
-// or null if refresh isn't possible (caller should treat that as logged-out).
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken()
   if (!refreshToken) return null
@@ -73,7 +71,6 @@ async function refreshAccessToken(): Promise<string | null> {
   return data.accessToken
 }
 
-// Core request helper. `isRetry` guards against an infinite refresh loop.
 async function request<T>(
   path: string,
   init: RequestInit & { isUpload?: boolean } = {},
@@ -91,7 +88,6 @@ async function request<T>(
     },
   })
 
-  // Try one transparent refresh + replay on an expired access token.
   if (res.status === 401 && !isRetry && getRefreshToken()) {
     const refreshed = await refreshAccessToken()
     if (refreshed) return request<T>(path, init, true)
@@ -102,7 +98,6 @@ async function request<T>(
   return (await res.json()) as T
 }
 
-// ---- JSON verbs ----
 export const api = {
   get: <T>(path: string) => request<T>(path, { method: 'GET' }),
   post: <T>(path: string, body?: unknown) =>
@@ -114,7 +109,7 @@ export const api = {
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
 
-// ---- File uploads (multipart) ----
+// ---- File uploads ----
 export async function uploadFile(file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)
@@ -144,6 +139,33 @@ export interface AuthUser {
   role: 'organizer' | 'student'
 }
 
+export interface College {
+  id: string
+  name: string
+  shortName?: string | null
+  vtuCode?: string | null
+  region?: string | null
+  isActive: boolean
+}
+
+export interface Club {
+  id: string
+  name: string
+  slug: string
+  collegeId?: string | null
+  college?: string | null
+  description?: string | null
+  status: 'pending' | 'active' | 'rejected' | 'suspended' | 'archived'
+  role?: string
+  branding?: {
+    logoUrl?: string | null
+    coverImageUrl?: string | null
+    accentColor?: string | null
+    secondaryColor?: string | null
+    coverStyle?: string | null
+  } | null
+}
+
 export interface OrganizerProfile {
   id: string
   email: string
@@ -156,7 +178,6 @@ export interface OrganizerProfile {
   logo?: string | null
   coverImage?: string | null
   accentColor?: string | null
-  // ---- Public club-page customization ----
   links?: { type: string; url: string }[]
   gallery?: string[]
   announcement?: string | null
@@ -166,13 +187,10 @@ export interface OrganizerProfile {
   hiddenSections?: string[]
 }
 
-// Default brand accent when an organizer hasn't picked one.
 export const DEFAULT_ACCENT = '#06B6D4'
 
-// Link types we render with a known icon on the club page.
 export const LINK_TYPES = ['website', 'instagram', 'whatsapp', 'email', 'twitter', 'linkedin', 'youtube', 'facebook'] as const
 
-// Public club-page sections that can be shown/hidden.
 export const CLUB_SECTIONS = [
   { key: 'announcement', label: 'Announcement' },
   { key: 'about', label: 'About / bio' },
@@ -186,10 +204,13 @@ interface AuthResponse {
   accessToken: string
   refreshToken: string
   user: AuthUser
-  profile: OrganizerProfile
+  profile: unknown
+  club: OrganizerProfile | null
+  clubs?: Club[]
+  memberships?: any[]
 }
 
-// ---- Auth helpers (store tokens as a side effect) ----
+// ---- Auth & Club helpers ----
 export async function login(email: string, password: string): Promise<AuthResponse> {
   const data = await api.post<AuthResponse>('/auth/login', { email, password })
   setTokens(data.accessToken, data.refreshToken)
@@ -202,6 +223,7 @@ export async function registerOrganizer(payload: {
   fullName?: string
   clubName: string
   college: string
+  collegeId?: string
   bio?: string
   establishedDate?: string
   coreTeam?: string
@@ -211,13 +233,37 @@ export async function registerOrganizer(payload: {
   return data
 }
 
-// Every account is a student that may also own a club. The organizer portal
-// treats the club as the working profile; `profile` is the student record.
-export async function fetchMe(): Promise<{ user: AuthUser; profile: unknown; club: OrganizerProfile | null }> {
+export async function fetchMe(): Promise<{
+  user: AuthUser
+  profile: unknown
+  club: OrganizerProfile | null
+  clubs?: Club[]
+  memberships?: any[]
+}> {
   return api.get('/auth/me')
 }
 
-// ---- Event volunteers (students authorised to scan an event) ----
+export async function fetchColleges(query?: { search?: string; region?: string }): Promise<College[]> {
+  const params = new URLSearchParams()
+  if (query?.search) params.append('search', query.search)
+  if (query?.region) params.append('region', query.region)
+  const qs = params.toString()
+  return api.get(`/colleges${qs ? `?${qs}` : ''}`)
+}
+
+export async function createClub(payload: {
+  name: string
+  collegeId?: string
+  college?: string
+  description?: string
+}): Promise<{ club: Club }> {
+  return api.post('/clubs', payload)
+}
+
+export async function fetchMyClubs(): Promise<{ membership: any; club: Club }[]> {
+  return api.get('/clubs/my-memberships')
+}
+
 export interface Volunteer {
   studentId: string
   name: string
