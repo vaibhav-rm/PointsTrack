@@ -43,6 +43,41 @@
       "when": 1781461305455,
       "tag": "0005_lush_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789469463576,
+      "tag": "0006_lethal_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789470163980,
+      "tag": "0007_freezing_pete_wisdom",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789472274927,
+      "tag": "0008_late_wither",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789472986872,
+      "tag": "0009_sour_invaders",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789498000000,
+      "tag": "0010_idempotency_keys",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS "points_ledger_attendee_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "points_ledger_attendee_award_unique" ON "points_ledger" USING btree ("attendee_id") WHERE ledger_type = 'award' AND attendee_id IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "points_ledger_one_reversal_unique" ON "points_ledger" USING btree ("reverses_ledger_id") WHERE ledger_type = 'reversal' AND reverses_ledger_id IS NOT NULL;

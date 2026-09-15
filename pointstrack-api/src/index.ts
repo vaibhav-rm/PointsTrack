@@ -13,6 +13,8 @@ import { attendeesRouter } from './routes/attendees.js';
 import { profileRouter } from './routes/profile.js';
 import { pointsRouter } from './routes/points.js';
 import { uploadRouter } from './routes/upload.js';
+import { collegesRouter } from './routes/colleges.js';
+import { clubsRouter } from './routes/clubs.js';
 
 const app = express();
 
@@ -48,7 +50,6 @@ app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
 // Rate limiting. A generous global ceiling protects every route from abuse,
 // and a strict limiter on /auth blunts brute-force / credential-stuffing.
-// (In-memory store is per-instance; swap in a Redis store when running >1 node.)
 const globalLimiter = rateLimit({
   windowMs: 60_000,
   max: env.isProd ? 300 : 100_000,
@@ -65,18 +66,23 @@ const authLimiter = rateLimit({
 app.use(globalLimiter);
 
 // Serve locally-stored uploads when object storage isn't configured.
-// Everything lives under /uploads/<prefix>/<file> so it can't collide with API routes.
 if (!useR2) {
   app.use('/uploads', express.static(LOCAL_UPLOAD_DIR));
 }
 
-// Object-storage proxy: streams assets from a (possibly private) bucket so they
-// stay public-readable without needing a public bucket / CDN. Long-cached since
-// stored keys are immutable (UUID filenames).
+// Object-storage proxy
 if (useR2) {
   app.get('/files/*', async (req, res) => {
     const key = (req.params as unknown as string[])[0];
     if (!key) return res.status(400).json({ error: 'Missing file key' });
+    if (
+      key.includes('..') ||
+      key.includes('\0') ||
+      key.startsWith('/') ||
+      !/^[a-zA-Z0-9_\-\.\/]+$/.test(key)
+    ) {
+      return res.status(400).json({ error: 'Invalid file key' });
+    }
     try {
       const file = await getFileStream(key);
       if (!file) return res.status(404).json({ error: 'Not found' });
@@ -96,6 +102,8 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/auth', authLimiter, authRouter);
+app.use('/colleges', collegesRouter);
+app.use('/clubs', clubsRouter);
 app.use('/events', eventsRouter);
 app.use('/attendees', attendeesRouter);
 app.use('/profile', profileRouter);

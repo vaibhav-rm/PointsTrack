@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq, and, asc, desc, inArray } from 'drizzle-orm';
+import { eq, and, asc, desc, inArray, sql } from 'drizzle-orm';
 import {
   db,
   attendees,
@@ -13,6 +13,7 @@ import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
 import { parsePagination } from '../lib/pagination.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireIdempotency } from '../middleware/idempotency.js';
 import { badRequest, forbidden, notFound, conflict } from '../lib/errors.js';
 import { notifyStudent } from '../lib/notifications.js';
 
@@ -122,7 +123,10 @@ async function applyStatusChange(
           date: new Date().toISOString().split('T')[0],
           certificateUrl: event?.certificateUrl,
         })
-        .onConflictDoNothing({ target: pointsLedger.attendeeId })
+        .onConflictDoNothing({
+          target: pointsLedger.attendeeId,
+          where: sql`ledger_type = 'award' AND attendee_id IS NOT NULL`,
+        })
         .returning();
       awarded = inserted.length > 0;
     }
@@ -233,7 +237,8 @@ const qrCheckinSchema = z.object({
 
 attendeesRouter.post(
   '/checkin-by-qr',
-  requireAuth, // the event owner OR an assigned volunteer may scan
+  requireAuth,
+  requireIdempotency(), // the event owner OR an assigned volunteer may scan
   asyncHandler(async (req, res) => {
     const { eventId, studentId } = parseBody(qrCheckinSchema, req);
 

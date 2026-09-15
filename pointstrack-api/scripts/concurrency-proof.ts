@@ -197,6 +197,55 @@ async function main() {
   }
 
   // ───────────────────────────────────────────────────────────────────────
+  // TEST 4 — Concurrent Reversal Guard. 5 simultaneous reversal attempts.
+  // Exactly 1 reversal entry created; 4 rejected with 400 Bad Request.
+  // ───────────────────────────────────────────────────────────────────────
+  bar('TEST 4  ·  5 simultaneous reversals of the same award entry');
+  {
+    const ev = await createEvent(org.token, 0, 50, `Proof T4 ${RUN}`);
+    const stu = await registerStudent(4);
+    await api('/attendees', { method: 'POST', token: stu.token, body: { eventId: ev } });
+    await api('/attendees/checkin-by-qr', { method: 'POST', token: org.token, body: { eventId: ev, studentId: stu.id } });
+
+    // Find the created points_ledger award entry
+    const [award] = await db.select().from(pointsLedger).where(eq(pointsLedger.eventId, ev));
+
+    const N = 5;
+    const responses = await Promise.all(
+      Array.from({ length: N }, () =>
+        api(`/points/${award.id}/reverse`, {
+          method: 'POST',
+          token: org.token,
+          body: { reason: 'Test reversal concurrency' },
+        })
+      )
+    );
+
+    const success = responses.filter((r) => r.status === 201).length;
+    const rejected = responses.filter((r) => r.status === 400 || r.status === 409).length;
+
+    const reversalsInDb = await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(pointsLedger)
+      .where(and(eq(pointsLedger.reversesLedgerId, award.id), eq(pointsLedger.ledgerType, 'reversal')));
+
+    const revCount = reversalsInDb[0]?.c ?? 0;
+
+    line('Concurrent reversal requests fired', N);
+    line('HTTP 201 created', success);
+    line('HTTP 400/409 rejected (duplicate reversals blocked)', rejected);
+    line('Reversal rows in DB', revCount);
+    const pass = success === 1 && rejected === N - 1 && revCount === 1;
+    line('RESULT', pass ? 'PASS ✓' : 'FAIL ✗');
+    results.push({
+      scenario: `5 simultaneous reversals of same award`,
+      expected: '1 reversal row · 1 HTTP 201 · 4 HTTP 400/409',
+      actual: `${revCount} reversal row · ${success} HTTP 201 · ${rejected} HTTP 400/409`,
+      pass,
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
   // Summary
   // ───────────────────────────────────────────────────────────────────────
   bar('SUMMARY');
@@ -212,8 +261,13 @@ async function main() {
   console.log(JSON.stringify({ runAt: new Date().toISOString(), base: BASE, results, allPass }, null, 2));
   console.log('<<<END_PROOF_JSON>>>');
 
-  // Cleanup: deleting the accounts cascades to events/attendees/ledger.
-  await db.delete(accounts).where(inArray(accounts.id, createdAccountIds));
+  // Cleanup: delete in strict reverse dependency order to respect ON DELETE RESTRICT
+  if (createdAccountIds.length > 0) {
+    await db.delete(pointsLedger).where(inArray(pointsLedger.studentId, createdAccountIds));
+    await db.delete(attendees).where(inArray(attendees.studentId, createdAccountIds));
+    await db.delete(eventsCatalog).where(inArray(eventsCatalog.organizerId, createdAccountIds));
+    await db.delete(accounts).where(inArray(accounts.id, createdAccountIds));
+  }
   await client.end();
   process.exit(allPass ? 0 : 1);
 }

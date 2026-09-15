@@ -5,7 +5,7 @@ import { env } from '../config/env.js';
 // Every account is a student; some also own a club. Role stays 'student' for all
 // accounts now — club ownership (an `organizers` row) is what grants organizer
 // powers, checked per-resource rather than by role.
-export type Role = 'organizer' | 'student';
+export type Role = 'organizer' | 'student' | 'admin';
 
 export interface AccessTokenPayload {
   sub: string; // account id

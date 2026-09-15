@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
-import { db, organizers, students } from '../db/index.js';
+import { eq, and, or, inArray } from 'drizzle-orm';
+import { db, organizers, students, clubMemberships, attendees, eventsCatalog } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { badRequest, notFound, forbidden } from '../lib/errors.js';
 
 export const profileRouter = Router();
 
@@ -128,5 +128,72 @@ profileRouter.put(
       .set({ pushToken })
       .where(eq(students.id, req.auth!.sub));
     res.json({ success: true });
+  })
+);
+
+// ---- Get single student private profile (Relational Privacy Guard) ----
+profileRouter.get(
+  '/student/:id',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const callerId = req.auth!.sub;
+    const targetStudentId = req.params.id;
+
+    // 1. Student caller accessing own profile
+    if (callerId === targetStudentId) {
+      const [profile] = await db.select().from(students).where(eq(students.id, targetStudentId));
+      if (!profile) throw notFound('Student not found');
+      return res.json(profile);
+    }
+
+    // 2. Admin caller accessing student profile
+    if (req.auth!.role === ('admin' as any)) {
+      const [profile] = await db.select().from(students).where(eq(students.id, targetStudentId));
+      if (!profile) throw notFound('Student not found');
+      return res.json(profile);
+    }
+
+    // 3. Organizer caller: Allowed ONLY if target student registered/checked into an event owned by caller or caller's active clubs
+    if (req.auth!.role === 'organizer') {
+      const userClubs = await db
+        .select({ clubId: clubMemberships.clubId })
+        .from(clubMemberships)
+        .where(
+          and(
+            eq(clubMemberships.accountId, callerId),
+            eq(clubMemberships.status, 'active')
+          )
+        );
+      
+      const clubIds = userClubs.map((c) => c.clubId);
+
+      // Schema-proven inner join: attendees.eventId -> eventsCatalog.id
+      // Checks eventsCatalog.organizerId == callerId (account ID) AND eventsCatalog.clubId IN (clubIds)
+      const [relatedAttendee] = await db
+        .select({ id: attendees.id })
+        .from(attendees)
+        .innerJoin(eventsCatalog, eq(eventsCatalog.id, attendees.eventId))
+        .where(
+          and(
+            eq(attendees.studentId, targetStudentId),
+            or(
+              eq(eventsCatalog.organizerId, callerId),
+              clubIds.length > 0 ? inArray(eventsCatalog.clubId, clubIds) : undefined
+            )
+          )
+        );
+
+      if (relatedAttendee) {
+        const [profile] = await db.select().from(students).where(eq(students.id, targetStudentId));
+        if (!profile) throw notFound('Student not found');
+        return res.json(profile);
+      }
+
+      // Organizer has no event registration/club relationship with target student -> DENIED 403
+      throw forbidden("Cannot access private profile of a student with no club/event relationship");
+    }
+
+    // 4. Deny access to any other unauthorized caller (e.g., student accessing another student)
+    throw forbidden("Cannot access private profile of another student");
   })
 );

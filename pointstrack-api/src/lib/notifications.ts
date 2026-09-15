@@ -10,9 +10,21 @@ interface PushPayload {
   data?: Record<string, unknown>;
 }
 
-async function sendToTokens(tokens: string[], payload: PushPayload) {
-  const valid = tokens.filter((t) => Expo.isExpoPushToken(t));
-  if (valid.length === 0) return [];
+export interface NotificationResult {
+  sent: number;
+  invalidTokens: number;
+  errors: string[];
+}
+
+async function sendToTokens(tokens: string[], payload: PushPayload): Promise<NotificationResult> {
+  const result: NotificationResult = { sent: 0, invalidTokens: 0, errors: [] };
+  const valid = tokens.filter((t) => {
+    const isValid = Expo.isExpoPushToken(t);
+    if (!isValid) result.invalidTokens++;
+    return isValid;
+  });
+
+  if (valid.length === 0) return result;
 
   const messages: ExpoPushMessage[] = valid.map((to) => ({
     to,
@@ -23,35 +35,36 @@ async function sendToTokens(tokens: string[], payload: PushPayload) {
   }));
 
   const chunks = expo.chunkPushNotifications(messages);
-  const tickets = [];
   for (const chunk of chunks) {
     try {
-      tickets.push(...(await expo.sendPushNotificationsAsync(chunk)));
-    } catch (err) {
-      console.error('Push chunk failed:', err);
+      const tickets = await expo.sendPushNotificationsAsync(chunk);
+      result.sent += tickets.length;
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      result.errors.push(errMsg);
+      console.error('[NOTIFICATIONS] Push notification chunk delivery failed:', {
+        error: errMsg,
+        chunkSize: chunk.length,
+        payloadTitle: payload.title,
+      });
     }
   }
-  return tickets;
+  return result;
 }
 
-// Notify a single student by id.
-export async function notifyStudent(studentId: string, payload: PushPayload) {
+export async function notifyStudent(studentId: string, payload: PushPayload): Promise<NotificationResult> {
   const [student] = await db
     .select({ pushToken: students.pushToken })
     .from(students)
     .where(eq(students.id, studentId));
-  if (!student?.pushToken) return [];
+  if (!student?.pushToken) return { sent: 0, invalidTokens: 0, errors: [] };
   return sendToTokens([student.pushToken], payload);
 }
 
-// Notify all eligible students. When targetCollege is set, only that college;
-// otherwise everyone (open-to-all event). The filtering happens in SQL — and
-// we only pull rows that actually have a push token — so a broadcast never loads
-// the entire students table into memory.
 export async function notifyStudentsByCollege(
   payload: PushPayload,
   targetCollege?: string | null
-) {
+): Promise<NotificationResult> {
   const conds = [isNotNull(students.pushToken)];
   if (targetCollege) conds.push(eq(students.college, targetCollege));
 
