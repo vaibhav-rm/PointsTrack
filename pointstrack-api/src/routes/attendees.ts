@@ -8,6 +8,7 @@ import {
   students,
   pointsLedger,
   eventVolunteers,
+  clubMemberships,
 } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
@@ -268,13 +269,36 @@ attendeesRouter.post(
     const [event] = await db.select().from(eventsCatalog).where(eq(eventsCatalog.id, eventId));
     if (!event) throw notFound('Event not found');
 
-    // Authorise: you must own this event, or be an assigned volunteer for it.
+    // Authorise: you must own this event, be an assigned volunteer for it, or
+    // hold a scanning staff role in the event's club (covers organizer-account
+    // staff, who can't be student-keyed volunteers).
     if (event.organizerId !== req.auth!.sub) {
       const [vol] = await db
         .select({ id: eventVolunteers.id })
         .from(eventVolunteers)
         .where(and(eq(eventVolunteers.eventId, eventId), eq(eventVolunteers.studentId, req.auth!.sub)));
-      if (!vol) throw forbidden('You are not authorised to scan for this event');
+      if (!vol) {
+        let staffScan = false;
+        if (event.clubId) {
+          const [membership] = await db
+            .select({ role: clubMemberships.role })
+            .from(clubMemberships)
+            .where(
+              and(
+                eq(clubMemberships.clubId, event.clubId),
+                eq(clubMemberships.accountId, req.auth!.sub),
+                eq(clubMemberships.status, 'active')
+              )
+            );
+          staffScan =
+            !!membership &&
+            (membership.role === 'owner' ||
+              membership.role === 'admin' ||
+              membership.role === 'event_manager' ||
+              membership.role === 'scanner');
+        }
+        if (!staffScan) throw forbidden('You are not authorised to scan for this event');
+      }
     }
 
     const [student] = await db.select().from(students).where(eq(students.id, studentId));
@@ -499,6 +523,7 @@ const bulkSchema = z.object({
 attendeesRouter.patch(
   '/bulk',
   requireAuth,
+  requireIdempotency(),
   asyncHandler(async (req, res) => {
     const { ids, status, engagement } = parseBody(bulkSchema, req);
 

@@ -21,6 +21,7 @@ export type AppStackParamList = {
     Organize: undefined;
     OrgEvents: undefined;
     CreateOrgEvent: undefined;
+    EditOrgEvent: { event: any };
     Clubs: undefined;
     ClubMembers: { clubId: string; clubName: string };
 };

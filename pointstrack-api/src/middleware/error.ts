@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import multer from 'multer';
 import { ZodError } from 'zod';
 import { HttpError } from '../lib/errors.js';
 
@@ -21,6 +22,16 @@ export function errorHandler(
   }
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message });
+  }
+  // Multer upload errors (too large, wrong file type) are client errors.
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'File too large (max 8MB per file)'
+        : err.code === 'LIMIT_FILE_COUNT'
+          ? 'Too many files (max 10)'
+          : 'Upload failed';
+    return res.status(400).json({ error: message });
   }
   // Postgres unique violation
   if (typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505') {

@@ -10,6 +10,15 @@ import { storeFile } from '../lib/storage.js';
 
 export const uploadRouter = Router();
 
+// Uploads are event artwork/certificates: images only. The filter rejects
+// executables/archives before they touch disk or object storage.
+const ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
+
 // Disk-backed temp storage + streaming upload: the file is never held twice
 // in RAM (once by multer, once by the uploader), so concurrent 8MB uploads
 // can't spike the Node heap. Temp files are always unlinked after store.
@@ -20,6 +29,10 @@ const upload = multer({
       cb(null, `pt-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`),
   }),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB per file
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME.has(file.mimetype)) return cb(null, true);
+    cb(badRequest('Only image files (JPEG, PNG, WebP, GIF) are allowed'));
+  },
 });
 
 async function storeTempFile(

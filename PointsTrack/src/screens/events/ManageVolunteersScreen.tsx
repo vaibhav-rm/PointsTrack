@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useColorScheme } from 'nativewind';
-import { api } from '../../lib/api';
+import { api, newIdempotencyKey } from '../../lib/api';
 import { AppNavigationProp, AppStackParamList } from '../../navigation/types';
 
 type Volunteer = { studentId: string; name: string; email: string; usn: string };
@@ -37,7 +37,9 @@ const ManageVolunteersScreen = () => {
     setAdding(true);
     try {
       const by = value.includes('@') ? { email: value } : { usn: value };
-      const v = await api.post<Volunteer>(`/events/${eventId}/volunteers`, by);
+      const v = await api.post<Volunteer>(`/events/${eventId}/volunteers`, by, {
+        idempotencyKey: newIdempotencyKey(),
+      });
       setVolunteers((prev) => (prev.some((p) => p.studentId === v.studentId) ? prev : [v, ...prev]));
       setInput('');
     } catch (e: any) {

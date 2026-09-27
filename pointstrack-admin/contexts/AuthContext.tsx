@@ -121,7 +121,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const isOrganizerRoute = pathname.startsWith('/organizer');
-  const isAuthRoute = pathname === '/organizer/login' || pathname === '/organizer/register';
+  const isResetRoute = pathname === '/organizer/reset-password';
+  const isAuthRoute =
+    pathname === '/organizer/login' ||
+    pathname === '/organizer/register' ||
+    isResetRoute;
   const isCreateClubRoute = pathname === '/organizer/create-club';
   const needsAuthOnly = isCreateClubRoute;
   const isProtected = isOrganizerRoute && !isAuthRoute;
@@ -137,12 +141,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const hasClub = !!profile || clubs.length > 0;
     if (!hasClub && isProtected && !needsAuthOnly) {
       router.push('/organizer/create-club');
-    } else if (hasClub && (isAuthRoute || isCreateClubRoute)) {
+    } else if (hasClub && (isAuthRoute || isCreateClubRoute) && !isResetRoute) {
       router.push('/organizer/dashboard');
-    } else if (isAuthRoute) {
+    } else if (isAuthRoute && !isResetRoute) {
       router.push('/organizer/create-club');
     }
-  }, [user, profile, clubs, loading, isAuthRoute, isCreateClubRoute, needsAuthOnly, isProtected, router]);
+  }, [user, profile, clubs, loading, isAuthRoute, isCreateClubRoute, needsAuthOnly, isProtected, isResetRoute, router]);
 
   return (
     <AuthContext.Provider

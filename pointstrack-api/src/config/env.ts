@@ -47,6 +47,19 @@ export const env = {
     s3Endpoint: optional('S3_ENDPOINT'),
     s3Region: optional('S3_REGION', 'auto'),
   },
+
+  mail: {
+    // SMTP for transactional email (password resets). Leave SMTP_HOST blank
+    // to log emails to the console instead (local development).
+    smtpHost: optional('SMTP_HOST'),
+    smtpPort: parseInt(optional('SMTP_PORT', '587'), 10),
+    smtpUser: optional('SMTP_USER'),
+    smtpPass: optional('SMTP_PASS'),
+    from: optional('MAIL_FROM', 'PointsTrack <no-reply@pointstrack.app>'),
+    // Public origin of the web app, used to build reset links that work for
+    // both students and organizers (shared API).
+    appUrl: optional('APP_URL', 'http://localhost:3000'),
+  },
 };
 
 // Use object storage when we have credentials + a bucket + somewhere to send them

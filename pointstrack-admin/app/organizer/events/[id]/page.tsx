@@ -9,7 +9,7 @@ import {
   Mail, CheckCircle, XCircle, Edit2, Globe, Download,
   ChevronLeft, ChevronRight,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, newIdempotencyKey } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import VolunteersCard from '@/components/organizer/VolunteersCard'
 import toast from 'react-hot-toast'
@@ -170,7 +170,10 @@ export default function EventDetailPage() {
         const chunk = ids.slice(i, i + 500)
         const res = await api.patch<{ updated: number; skipped: number; attendees: any[] }>(
           '/attendees/bulk',
-          { ids: chunk, status: newStatus, engagement: newStatus === 'checked-in' ? 'High' : 'Low' }
+          { ids: chunk, status: newStatus, engagement: newStatus === 'checked-in' ? 'High' : 'Low' },
+          // Fresh key per chunk: the server rejects a reused key with a
+          // different payload, so chunks must not share one.
+          { headers: { 'Idempotency-Key': newIdempotencyKey() } }
         )
         updatedCount += res.updated
         skippedCount += res.skipped

@@ -133,6 +133,25 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  // Paginated fetch with the server's X-Total-Count for real pagers.
+  getPage: async <T>(path: string): Promise<{ data: T; total: number | null }> => {
+    const doFetch = async (): Promise<Response> =>
+      fetch(`${API_URL}${path}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+      });
+    let res = await doFetch();
+    if (res.status === 401 && refreshToken) {
+      const refreshed = await singleFlightRefresh();
+      if (refreshed) res = await doFetch();
+    }
+    if (!res.ok) throw new ApiError(res.status, await parseError(res));
+    const data = (await res.json()) as T;
+    const totalHeader = res.headers.get('X-Total-Count');
+    return { data, total: totalHeader ? parseInt(totalHeader, 10) : null };
+  },
 };
 
 // Upload a local file URI (from expo-image-picker) as multipart form data.

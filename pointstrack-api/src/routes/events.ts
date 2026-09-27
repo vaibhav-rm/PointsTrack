@@ -6,6 +6,7 @@ import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
 import { parsePagination, setTotalCount } from '../lib/pagination.js';
 import { requireAuth, requireClub } from '../middleware/auth.js';
+import { requireIdempotency } from '../middleware/idempotency.js';
 import { badRequest, forbidden, notFound } from '../lib/errors.js';
 import { notifyStudentsByCollege } from '../lib/notifications.js';
 
@@ -62,14 +63,16 @@ async function resolveCollegeId(
 
 // The creator's club determines event tenancy: prefer their first active
 // club's college, else fall back to matching their legacy profile college.
+// Returns the club id too so club-staff scan permissions apply to new events.
 async function resolveCreatorCollege(accountId: string, fallbackCollege: string) {
   const [row] = await db
-    .select({ collegeId: clubs.collegeId })
+    .select({ collegeId: clubs.collegeId, clubId: clubs.id })
     .from(clubMemberships)
     .innerJoin(clubs, eq(clubs.id, clubMemberships.clubId))
     .where(and(eq(clubMemberships.accountId, accountId), eq(clubMemberships.status, 'active')));
-  if (row?.collegeId) return row.collegeId;
-  return resolveCollegeId(fallbackCollege);
+  if (row?.collegeId || row?.clubId) return row;
+  const collegeId = await resolveCollegeId(fallbackCollege);
+  return { collegeId, clubId: null as string | null };
 }
 
 // ---- Public feed: events a student can see (their college + open-to-all) ----
@@ -166,10 +169,9 @@ eventsRouter.get(
   })
 );
 
-// ---- Single event ----
+// ---- Single event (public catalog row — no attendee PII, shareable) ----
 eventsRouter.get(
   '/:id',
-  requireAuth,
   asyncHandler(async (req, res) => {
     const [event] = await db
       .select()
@@ -184,6 +186,7 @@ eventsRouter.get(
 eventsRouter.post(
   '/',
   requireAuth,
+  requireIdempotency(),
   requireClub,
   asyncHandler(async (req, res) => {
     const data = parseBody(eventSchema, req);
@@ -222,10 +225,12 @@ eventsRouter.post(
       if (!profile) throw notFound('Organizer profile not found');
     }
 
+    const creatorClub = await resolveCreatorCollege(req.auth!.sub, profile.college);
     const [event] = await db
       .insert(eventsCatalog)
       .values({
         organizerId: req.auth!.sub,
+        clubId: creatorClub.clubId,
         title: data.title,
         description: data.description,
         startDate: data.startDate,
@@ -241,7 +246,7 @@ eventsRouter.post(
         clubName: profile.clubName,
         clubLogo: profile.logo,
         targetCollege: profile.college,
-        collegeId: await resolveCreatorCollege(req.auth!.sub, profile.college),
+        collegeId: creatorClub.collegeId,
         openToAll: data.openToAll,
         images: data.images ?? [],
         certificateUrl: data.images?.[0] ?? null,
@@ -304,6 +309,7 @@ const addVolunteerSchema = z
 eventsRouter.post(
   '/:id/volunteers',
   requireAuth,
+  requireIdempotency(),
   asyncHandler(async (req, res) => {
     await getOwnedEvent(req.params.id, req.auth!.sub);
     const { usn, email } = parseBody(addVolunteerSchema, req);

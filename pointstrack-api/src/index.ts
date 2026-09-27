@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { type Store } from 'express-rate-limit';
 import { sql } from 'drizzle-orm';
 import { env, useR2 } from './config/env.js';
 import { db } from './db/index.js';
@@ -52,15 +52,40 @@ app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
 // Rate limiting. A generous global ceiling protects every route from abuse,
 // and a strict limiter on /auth blunts brute-force / credential-stuffing.
-// Limits are env-configurable per deployment size. NOTE: the default
-// in-memory store is per-process — when running multiple instances behind a
-// load balancer, set RATE_LIMIT_STORE=redis (and provide REDIS_URL) via a
-// Redis-backed store; otherwise each instance enforces its own budget.
+// Limits are env-configurable per deployment size. The store is in-memory by
+// default (single instance); set REDIS_URL to share one budget across
+// instances behind a load balancer — if Redis is unreachable the limiter
+// fails open to the memory store rather than taking the API down.
+async function buildRateLimitStore(): Promise<Store | undefined> {
+  if (!process.env.REDIS_URL) return undefined;
+  try {
+    const [{ default: Redis }, { RedisStore }] = await Promise.all([
+      import('ioredis'),
+      import('rate-limit-redis'),
+    ]);
+    const client = new Redis(process.env.REDIS_URL, {
+      maxRetriesPerRequest: 2,
+      enableReadyCheck: true,
+    });
+    client.on('error', (err) => console.error('[rate-limit] redis error, budgets are per-instance:', err?.message));
+    return new RedisStore({
+      // @ts-expect-error rate-limit-redis v4 accepts an ioredis client via sendCommand
+      sendCommand: (...args: string[]) => client.call(...args),
+    });
+  } catch (err: any) {
+    console.error('[rate-limit] REDIS_URL set but redis unavailable, using memory store:', err?.message);
+    return undefined;
+  }
+}
+
+const rateLimitStore = await buildRateLimitStore();
+
 const globalLimiter = rateLimit({
   windowMs: 60_000,
   max: parseInt(process.env.RATE_LIMIT_GLOBAL_MAX ?? (env.isProd ? '300' : '100000'), 10),
   standardHeaders: true,
   legacyHeaders: false,
+  ...(rateLimitStore ? { store: rateLimitStore } : {}),
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60_000,

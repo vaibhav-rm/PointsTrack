@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { api, uploadFile, uploadFiles } from '@/lib/api'
+import { api, uploadFile, uploadFiles, newIdempotencyKey } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { Calendar, MapPin, Users, Clock, Upload, X } from 'lucide-react'
@@ -79,8 +79,8 @@ export default function CreateEventPage() {
         uploadedUrls.push(...pastUrls)
       }
 
-      // 3. Create the event. The API derives organizer/club/college from the
-      // authenticated token and broadcasts the push notification server-side.
+      // 3. Create the event. One key per submit: retries replay instead of
+      // publishing a duplicate event.
       toast.success("Creating event record...", { id: 'upload' })
       await api.post('/events', {
         title: formData.name,
@@ -94,7 +94,7 @@ export default function CreateEventPage() {
         capacity: parseInt(formData.capacity, 10) || 0,
         openToAll: formData.openToAll,
         images: uploadedUrls,
-      })
+      }, { idempotencyKey: newIdempotencyKey() })
 
       toast.success("Event broadcasted successfully!", { id: 'upload' })
       router.push('/organizer/dashboard')

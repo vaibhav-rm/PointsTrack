@@ -334,6 +334,13 @@ const EventDetailsScreen = () => {
               </View>
 
               <Text className="text-lg font-pbold text-textPrimary dark:text-white mb-2">Attendees</Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('EditOrgEvent', { event })}
+                className="flex-row items-center mb-3"
+              >
+                <Ionicons name="create-outline" size={16} color={isDark ? '#818CF8' : '#4F46E5'} />
+                <Text className="text-primary dark:text-indigo-400 font-pmedium text-sm ml-1">Edit event details</Text>
+              </TouchableOpacity>
               {eventAttendees.length === 0 ? (
                 <View className="items-center justify-center py-6 bg-gray-50 dark:bg-darkCard rounded-2xl border border-gray-100 dark:border-gray-800 border-dashed">
                   <Text className="text-textSecondary dark:text-gray-400 font-pmedium">No one has registered yet.</Text>

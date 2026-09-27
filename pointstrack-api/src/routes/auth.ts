@@ -13,9 +13,12 @@ import {
   academicPolicies,
   studentAcademicRecords,
   pointsLedger,
+  passwordResets,
   refreshTokens,
 } from '../db/index.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
+import { sendMail, passwordResetEmail } from '../lib/mailer.js';
+import { env } from '../config/env.js';
 import {
   signAccessToken,
   generateRefreshToken,
@@ -362,17 +365,81 @@ authRouter.post(
   })
 );
 
-// ---- Forgot password ----
+// ---- Forgot password (real flow: single-use 1h token emailed as a link) ----
+// Always returns success so addresses can't be enumerated. Without SMTP
+// configured the link is logged server-side (dev) instead of emailed.
 const forgotSchema = z.object({ email: z.string().email() });
 
 authRouter.post(
   '/forgot-password',
   asyncHandler(async (req, res) => {
     const { email } = parseBody(forgotSchema, req);
-    const [account] = await db.select().from(accounts).where(eq(accounts.email, email.toLowerCase()));
+    const normalized = email.toLowerCase();
+    const [account] = await db.select().from(accounts).where(eq(accounts.email, normalized));
     if (account) {
-      console.log(`[forgot-password] reset requested for ${email}`);
+      const { token } = generateRefreshToken(); // 96-hex-char opaque secret
+      // Invalidate older unused tokens so only the latest link works.
+      await db.delete(passwordResets).where(eq(passwordResets.accountId, account.id));
+      await db.insert(passwordResets).values({
+        accountId: account.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      const resetUrl = `${env.mail.appUrl.replace(/\/$/, '')}/organizer/reset-password?token=${token}`;
+      const [student] = await db.select({ name: students.name }).from(students).where(eq(students.id, account.id));
+      const [organizer] = await db
+        .select({ name: organizers.fullName })
+        .from(organizers)
+        .where(eq(organizers.id, account.id));
+      const name = student?.name ?? organizer?.name ?? 'there';
+      const { subject, text, html } = passwordResetEmail(name, resetUrl);
+      sendMail(normalized, subject, text, html).catch((err) =>
+        console.error('[forgot-password] send failed:', err)
+      );
     }
+    res.json({ success: true });
+  })
+);
+
+// ---- Reset password (consumes the token, logs out all sessions) ----
+const resetSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(6),
+});
+
+authRouter.post(
+  '/reset-password',
+  asyncHandler(async (req, res) => {
+    const { token, password } = parseBody(resetSchema, req);
+    const tokenHash = hashToken(token);
+    const [row] = await db
+      .select()
+      .from(passwordResets)
+      .where(
+        and(
+          eq(passwordResets.tokenHash, tokenHash),
+          isNull(passwordResets.usedAt),
+          gt(passwordResets.expiresAt, new Date())
+        )
+      );
+    if (!row) throw unauthorized('Invalid or expired reset link');
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(accounts)
+        .set({ passwordHash: await hashPassword(password), updatedAt: new Date() })
+        .where(eq(accounts.id, row.accountId));
+      await tx
+        .update(passwordResets)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResets.id, row.id));
+      // All sessions die with the old password.
+      await tx
+        .update(refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(refreshTokens.accountId, row.accountId));
+    });
+    invalidateAccountStatus(row.accountId);
     res.json({ success: true });
   })
 );

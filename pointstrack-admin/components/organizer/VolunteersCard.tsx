@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ScanLine, UserPlus, X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { listVolunteers, addVolunteer, removeVolunteer, type Volunteer } from '@/lib/api'
+import { listVolunteers, addVolunteer, removeVolunteer, newIdempotencyKey, type Volunteer } from '@/lib/api'
 
 /**
  * Manage the students authorised to scan/check-in for this event. The event
@@ -29,7 +29,7 @@ export default function VolunteersCard({ eventId }: { eventId: string }) {
     setAdding(true)
     try {
       const by = value.includes('@') ? { email: value } : { usn: value }
-      const v = await addVolunteer(eventId, by)
+      const v = await addVolunteer(eventId, by, newIdempotencyKey())
       setVolunteers((prev) => (prev.some((p) => p.studentId === v.studentId) ? prev : [v, ...prev]))
       setInput('')
       toast.success(`${v.name} can now scan this event`)

@@ -111,14 +111,38 @@ async function request<T>(
   return (await res.json()) as T
 }
 
+type IdempotencyOpts = {
+  idempotencyKey?: string
+  headers?: Record<string, string>
+}
+
+function idempotencyHeaders(opts?: IdempotencyOpts): Record<string, string> {
+  return {
+    ...(opts?.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : {}),
+    ...(opts?.headers ?? {}),
+  }
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path, { method: 'GET' }),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
-  put: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
-  patch: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
+  post: <T>(path: string, body?: unknown, opts?: IdempotencyOpts) =>
+    request<T>(path, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+      headers: idempotencyHeaders(opts),
+    }),
+  put: <T>(path: string, body?: unknown, opts?: IdempotencyOpts) =>
+    request<T>(path, {
+      method: 'PUT',
+      body: body ? JSON.stringify(body) : undefined,
+      headers: idempotencyHeaders(opts),
+    }),
+  patch: <T>(path: string, body?: unknown, opts?: IdempotencyOpts) =>
+    request<T>(path, {
+      method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+      headers: idempotencyHeaders(opts),
+    }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   // Paginated fetch: same as get, but also returns the server's X-Total-Count
   // so pages can render real pagers instead of downloading every row.
@@ -243,6 +267,10 @@ interface AuthResponse {
 }
 
 // ---- Auth & Club helpers ----
+export async function forgotPassword(email: string): Promise<void> {
+  await api.post('/auth/forgot-password', { email })
+}
+
 export async function login(email: string, password: string): Promise<AuthResponse> {
   const data = await api.post<AuthResponse>('/auth/login', { email, password })
   setTokens(data.accessToken, data.refreshToken)
@@ -308,8 +336,18 @@ export async function listVolunteers(eventId: string): Promise<Volunteer[]> {
   return api.get(`/events/${eventId}/volunteers`)
 }
 
-export async function addVolunteer(eventId: string, by: { usn?: string; email?: string }): Promise<Volunteer> {
-  return api.post(`/events/${eventId}/volunteers`, by)
+// Unique key per user action; sent as Idempotency-Key so network retries
+// replay the original response instead of duplicating the write.
+export function newIdempotencyKey(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+}
+
+export async function addVolunteer(
+  eventId: string,
+  by: { usn?: string; email?: string },
+  idempotencyKey?: string
+): Promise<Volunteer> {
+  return api.post(`/events/${eventId}/volunteers`, by, idempotencyKey ? { idempotencyKey } : undefined)
 }
 
 export async function removeVolunteer(eventId: string, studentId: string): Promise<void> {

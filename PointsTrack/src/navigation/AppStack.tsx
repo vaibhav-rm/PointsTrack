@@ -20,6 +20,7 @@ import SemesterWrappedScreen from '../screens/dashboard/SemesterWrappedScreen';
 import OrganizerHomeScreen from '../screens/organizer/OrganizerHomeScreen';
 import OrgEventsScreen from '../screens/organizer/OrgEventsScreen';
 import CreateOrgEventScreen from '../screens/organizer/CreateOrgEventScreen';
+import EditOrgEventScreen from '../screens/organizer/EditOrgEventScreen';
 import ClubsScreen from '../screens/clubs/ClubsScreen';
 import ClubMembersScreen from '../screens/clubs/ClubMembersScreen';
 
@@ -161,6 +162,7 @@ const AppStack = () => {
         }}
       />
       <Tab.Screen name="CreateOrgEvent" component={CreateOrgEventScreen} options={HIDDEN} />
+      <Tab.Screen name="EditOrgEvent" component={EditOrgEventScreen} options={HIDDEN} />
       <Tab.Screen name="ClubMembers" component={ClubMembersScreen} options={HIDDEN} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>

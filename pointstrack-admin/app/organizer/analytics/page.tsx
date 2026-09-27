@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { BarChart3, TrendingUp, Users, Clock } from 'lucide-react'
+import { BarChart3, TrendingUp, Users, Award } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
@@ -12,6 +12,7 @@ interface Summary {
   pending: number
   rejected: number
   waitlisted: number
+  pointsAwarded: number
   byEngagement: Record<string, number>
 }
 
@@ -58,7 +59,7 @@ export default function AnalyticsPage() {
 
   const metrics = [
     { label: 'Total Check-ins', value: checkedInCount.toString(), change: 'Live', icon: Users },
-    { label: 'Avg. Session Time', value: 'N/A', change: '--', icon: Clock },
+    { label: 'Points Awarded', value: (summary?.pointsAwarded ?? 0).toString(), change: 'Live', icon: Award },
     { label: 'Total Registrations', value: (summary?.total ?? 0).toString(), change: 'Live', icon: TrendingUp },
     { label: 'Active Events', value: eventsTotal.toString(), change: 'Live', icon: BarChart3 },
   ]
@@ -108,7 +109,7 @@ export default function AnalyticsPage() {
     const mapped = events.map((event) => ({
       event: event.title,
       attendees: event.checkedInCount ?? 0,
-      rating: 5.0 // Ratings not yet implemented, defaulting
+      registered: event.attendeeCount ?? 0,
     }));
 
     return mapped.sort((a, b) => b.attendees - a.attendees).slice(0, 5);
@@ -212,11 +213,13 @@ export default function AnalyticsPage() {
             <div key={i} className="flex items-center justify-between p-4 border border-slate-800/50 rounded-lg hover:bg-slate-800/30 transition-colors">
               <div>
                 <p className="font-semibold text-white">{item.event}</p>
-                <p className="text-sm text-slate-400">{item.attendees} attendees</p>
+                <p className="text-sm text-slate-400">{item.attendees} checked in · {item.registered} registered</p>
               </div>
               <div className="text-right">
-                <p className="font-bold text-cyan-400">{item.rating}★</p>
-                <p className="text-xs text-slate-400">rating</p>
+                <p className="font-bold text-cyan-400">
+                  {item.registered > 0 ? Math.round((item.attendees / item.registered) * 100) : 0}%
+                </p>
+                <p className="text-xs text-slate-400">check-in rate</p>
               </div>
             </div>
           ))}

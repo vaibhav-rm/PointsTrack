@@ -29,31 +29,52 @@ const UpcomingEventsScreen = () => {
   const [events, setEvents] = useState<UpcomingEvent[]>([]);
   const [appliedEventIds, setAppliedEventIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('All');
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState<number | null>(null);
 
-  // Fetch the student's college feed (their college + open-to-all) plus the set
-  // of events they've already applied to, then sort chronologically.
-  // collegeId is the indexed tenancy key; the legacy college name is sent as
-  // a fallback for rows predating the backfill.
-  const loadData = useCallback(async () => {
-    try {
-      const params = new URLSearchParams({ limit: '100' });
+  const PAGE_SIZE = 30;
+
+  const feedParams = useCallback(
+    (pageNum: number) => {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(pageNum * PAGE_SIZE) });
       if (profile?.collegeId) params.set('collegeId', profile.collegeId);
       else if (profile?.college) params.set('college', profile.college);
-      const [eventsData, myApplications] = await Promise.all([
-        api.get<UpcomingEvent[]>(`/events?${params}`),
-        api.get<any[]>('/attendees/mine?limit=500'),
-      ]);
-      eventsData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      setEvents(eventsData);
-      setAppliedEventIds(new Set(myApplications.map((a) => a.eventId)));
-    } catch (error) {
-      console.error('Error loading upcoming events:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [profile?.collegeId, profile?.college]);
+      return params;
+    },
+    [profile?.collegeId, profile?.college]
+  );
+
+  // Paginated college feed (their college + open-to-all), newest first from
+  // the server. Applied badges come from a bounded mine-list.
+  const loadPage = useCallback(
+    async (pageNum: number, replace: boolean) => {
+      if (replace) setLoading(true);
+      else setLoadingMore(true);
+      try {
+        if (pageNum === 0) {
+          const myApplications = await api.get<any[]>('/attendees/mine?limit=500');
+          setAppliedEventIds(new Set(myApplications.map((a) => a.eventId)));
+        }
+        const { data, total } = await api.getPage<UpcomingEvent[]>(`/events?${feedParams(pageNum)}`);
+        setTotal(total);
+        setEvents((prev) => (replace ? data : [...prev, ...data]));
+        setPage(pageNum);
+      } catch (error) {
+        console.error('Error loading upcoming events:', error);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [feedParams]
+  );
+
+  const loadData = useCallback(async () => {
+    await loadPage(0, true);
+  }, [loadPage]);
 
   useFocusEffect(
     useCallback(() => {
@@ -67,21 +88,20 @@ const UpcomingEventsScreen = () => {
     setRefreshing(false);
   }, [loadData]);
 
+  const hasMore = total == null || events.length < total;
+
   const filteredAndSortedEvents = useMemo(() => {
-    // 1. Filter by category
-    let result = events;
-    if (selectedFilter !== 'All') {
-      result = events.filter(e => e.type === selectedFilter);
-    }
+    // 1. Filter by category (server returns newest-first; order preserved).
+    const result = selectedFilter === 'All' ? [...events] : events.filter(e => e.type === selectedFilter);
 
     // 2. Sort so applied events are visually grouped at the bottom
     return result.sort((a, b) => {
        const aApplied = appliedEventIds.has(a.id);
        const bApplied = appliedEventIds.has(b.id);
-       
+
        if (aApplied && !bApplied) return 1;
        if (!aApplied && bApplied) return -1;
-       return 0; // maintain chronological order within groups
+       return 0; // maintain server order within groups
     });
   }, [events, appliedEventIds, selectedFilter]);
 
@@ -203,6 +223,21 @@ const UpcomingEventsScreen = () => {
                 </TouchableOpacity>
               );
             })}
+            {hasMore && filteredAndSortedEvents.length > 0 && (
+              <TouchableOpacity
+                onPress={() => loadPage(page + 1, false)}
+                disabled={loadingMore}
+                className="bg-white dark:bg-darkCard p-4 rounded-2xl mb-4 border border-gray-200 dark:border-gray-700 items-center"
+              >
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color="#4F46E5" />
+                ) : (
+                  <Text className="text-primary dark:text-indigo-400 font-pmedium">
+                    Load more{total != null ? ` (${events.length} of ${total})` : ''}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>

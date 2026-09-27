@@ -443,6 +443,25 @@ export const refreshTokens = pgTable(
   })
 );
 
+// ---- Password resets (single-use tokens, 1h expiry) ----
+export const passwordResets = pgTable(
+  'password_resets',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    accountIdx: index('password_resets_account_idx').on(t.accountId),
+    expiresIdx: index('password_resets_expires_idx').on(t.expiresAt),
+  })
+);
+
 // ---- Idempotency Keys ----
 export const idempotencyKeys = pgTable(
   'idempotency_keys',

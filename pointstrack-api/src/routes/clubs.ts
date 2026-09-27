@@ -18,6 +18,7 @@ import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
 import { parsePagination, setTotalCount } from '../lib/pagination.js';
 import { requireAuth, requireClubMember, requirePermission, requireRole } from '../middleware/auth.js';
+import { requireIdempotency } from '../middleware/idempotency.js';
 import { badRequest, forbidden, notFound, conflict } from '../lib/errors.js';
 
 export const clubsRouter = Router();
@@ -63,6 +64,7 @@ const brandingSchema = z.object({
 clubsRouter.post(
   '/',
   requireAuth,
+  requireIdempotency(),
   asyncHandler(async (req, res) => {
     const data = parseBody(createClubSchema, req);
     const accountId = req.auth!.sub;
@@ -152,6 +154,7 @@ const onboardClubSchema = z.object({
 clubsRouter.post(
   '/onboard',
   requireAuth,
+  requireIdempotency(),
   asyncHandler(async (req, res) => {
     const data = parseBody(onboardClubSchema, req);
     const accountId = req.auth!.sub;
@@ -406,6 +409,7 @@ clubsRouter.get(
 clubsRouter.post(
   '/:id/join',
   requireAuth,
+  requireIdempotency(),
   asyncHandler(async (req, res) => {
     const [club] = await db.select().from(clubs).where(eq(clubs.id, req.params.id));
     if (!club) throw notFound('Club not found');

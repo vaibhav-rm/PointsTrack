@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Users, Briefcase, Sparkles, LogOut } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { api, logout } from '@/lib/api'
+import { api, logout, newIdempotencyKey } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { COLLEGES } from '@/lib/colleges'
 
@@ -36,7 +36,7 @@ export default function CreateClubPage() {
         college: form.college,
         description: form.bio || undefined,
         fullName: form.fullName || undefined,
-      })
+      }, { idempotencyKey: newIdempotencyKey() })
       await refreshProfile()
       toast.success('Club created! 🎉')
       router.push('/organizer/dashboard')

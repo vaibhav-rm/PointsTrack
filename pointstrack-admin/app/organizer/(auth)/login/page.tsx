@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Mail, Lock } from 'lucide-react'
 
-import { login } from '@/lib/api'
+import { login, forgotPassword } from '@/lib/api'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
@@ -83,7 +83,27 @@ export default function LoginPage() {
 
           {/* Password */}
           <div>
-            <label className="block text-sm font-medium text-slate-200 mb-2">Password</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-slate-200">Password</label>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!formData.email || !/^[^^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+                    toast.error('Enter your email above first')
+                    return
+                  }
+                  try {
+                    await forgotPassword(formData.email)
+                    toast.success('If that email is registered, a reset link is on its way')
+                  } catch {
+                    toast.error('Could not send a reset link — try again later')
+                  }
+                }}
+                className="text-xs text-cyan-400 hover:text-cyan-300"
+              >
+                Forgot password?
+              </button>
+            </div>
             <div className="relative">
               <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
               <input
