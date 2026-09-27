@@ -147,7 +147,7 @@ profileRouter.get(
     }
 
     // 2. Admin caller accessing student profile
-    if (req.auth!.role === ('admin' as any)) {
+    if (req.auth!.role === 'admin') {
       const [profile] = await db.select().from(students).where(eq(students.id, targetStudentId));
       if (!profile) throw notFound('Student not found');
       return res.json(profile);

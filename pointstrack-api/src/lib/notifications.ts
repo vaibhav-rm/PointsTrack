@@ -65,13 +65,33 @@ export async function notifyStudentsByCollege(
   payload: PushPayload,
   targetCollege?: string | null
 ): Promise<NotificationResult> {
-  const conds = [isNotNull(students.pushToken)];
-  if (targetCollege) conds.push(eq(students.college, targetCollege));
+  // Batched fan-out: page through push tokens (1k rows at a time) instead of
+  // loading the whole student body into memory, then send Expo chunks with
+  // bounded concurrency. Scales to tens of thousands of students; for larger
+  // blasts move this into a background queue (BullMQ/Redis) and return 202.
+  const aggregate: NotificationResult = { sent: 0, invalidTokens: 0, errors: [] };
+  const PAGE = 1000;
+  let offset = 0;
 
-  const rows = await db
-    .select({ pushToken: students.pushToken })
-    .from(students)
-    .where(and(...conds));
+  for (;;) {
+    const conds = [isNotNull(students.pushToken)];
+    if (targetCollege) conds.push(eq(students.college, targetCollege));
 
-  return sendToTokens(rows.map((r) => r.pushToken!) as string[], payload);
+    const rows = await db
+      .select({ pushToken: students.pushToken })
+      .from(students)
+      .where(and(...conds))
+      .limit(PAGE)
+      .offset(offset);
+    if (rows.length === 0) break;
+
+    const r = await sendToTokens(rows.map((r) => r.pushToken!) as string[], payload);
+    aggregate.sent += r.sent;
+    aggregate.invalidTokens += r.invalidTokens;
+    aggregate.errors.push(...r.errors);
+
+    if (rows.length < PAGE) break;
+    offset += PAGE;
+  }
+  return aggregate;
 }

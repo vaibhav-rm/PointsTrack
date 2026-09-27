@@ -6,22 +6,42 @@ import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 
+interface Summary {
+  total: number
+  checkedIn: number
+  pending: number
+  rejected: number
+  waitlisted: number
+  byEngagement: Record<string, number>
+}
+
+interface DayBucket {
+  day: string
+  total: number
+}
+
 export default function AnalyticsPage() {
   const { user } = useAuth()
   const [events, setEvents] = useState<any[]>([])
-  const [attendees, setAttendees] = useState<any[]>([])
+  const [eventsTotal, setEventsTotal] = useState(0)
+  const [summary, setSummary] = useState<Summary | null>(null)
+  const [trend, setTrend] = useState<DayBucket[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchAnalyticsData = async () => {
       if (!user) return;
       try {
-        const [fetchedEvents, fetchedAttendees] = await Promise.all([
-          api.get<any[]>('/events/mine'),
-          api.get<any[]>('/attendees'),
+        // Aggregates + a bounded event list — never full attendee downloads.
+        const [eventsPage, fetchedSummary, daily] = await Promise.all([
+          api.getPage<any[]>('/events/mine?limit=100'),
+          api.get<Summary>('/attendees/summary'),
+          api.get<DayBucket[]>('/attendees/checkins/daily?days=7'),
         ]);
-        setEvents(fetchedEvents);
-        setAttendees(fetchedAttendees);
+        setEvents(eventsPage.data);
+        setEventsTotal(eventsPage.total ?? eventsPage.data.length);
+        setSummary(fetchedSummary);
+        setTrend(daily);
       } catch (error) {
         console.error("Error fetching analytics data:", error);
       } finally {
@@ -32,54 +52,43 @@ export default function AnalyticsPage() {
     fetchAnalyticsData();
   }, [user]);
 
-  const checkedInCount = attendees.filter(a => a.status === 'checked-in').length;
+  const checkedInCount = summary?.checkedIn ?? 0;
 
   const metrics = [
     { label: 'Total Check-ins', value: checkedInCount.toString(), change: 'Live', icon: Users },
     { label: 'Avg. Session Time', value: 'N/A', change: '--', icon: Clock },
-    { label: 'Total Registrations', value: attendees.length.toString(), change: 'Live', icon: TrendingUp },
-    { label: 'Active Events', value: events.length.toString(), change: 'Live', icon: BarChart3 },
+    { label: 'Total Registrations', value: (summary?.total ?? 0).toString(), change: 'Live', icon: TrendingUp },
+    { label: 'Active Events', value: eventsTotal.toString(), change: 'Live', icon: BarChart3 },
   ]
 
-  // 1. Dynamic Attendance Trend (Last 7 Days)
+  // Attendance trend from the server-aggregated daily buckets, ordered so
+  // today is last. Missing days (zero check-ins) render as empty bars.
   const getAttendanceTrend = () => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const trendCounts = [0, 0, 0, 0, 0, 0, 0]; // Sun - Sat
-    
-    attendees.forEach(a => {
-      if (a.checkInTimestamp) {
-        // Handle Firestore Timestamp or string dates
-        const date = a.checkInTimestamp.toDate ? a.checkInTimestamp.toDate() : new Date(a.checkInTimestamp);
-        const dayIndex = date.getDay();
-        trendCounts[dayIndex]++;
-      }
-    });
-
-    // Reorder array so today is last, and previous 6 days precede it.
-    const todayIndex = new Date().getDay();
-    const orderedTrend = [];
-    
-    // Calculate max to normalize percentages
-    const maxCount = Math.max(...trendCounts, 1); // Avoid div by 0
-    
+    const byDate = new Map(trend.map((d) => [d.day, d.total]));
+    const ordered: { day: string; count: number; percentage: number }[] = [];
+    const counts: number[] = [];
     for (let i = 6; i >= 0; i--) {
-      const dIndex = (todayIndex - i + 7) % 7;
-      orderedTrend.push({
-        day: days[dIndex],
-        count: trendCounts[dIndex],
-        percentage: Math.floor((trendCounts[dIndex] / maxCount) * 100)
-      });
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      const count = byDate.get(key) ?? 0;
+      counts.push(count);
+      ordered.push({ day: days[d.getDay()], count, percentage: 0 });
     }
-    return orderedTrend;
+    const maxCount = Math.max(...counts, 1);
+    ordered.forEach((o) => { o.percentage = Math.floor((o.count / maxCount) * 100); });
+    return ordered;
   };
   const trendData = getAttendanceTrend();
 
-  // 2. Dynamic Engagement Distribution
+  // Engagement distribution from the server GROUP BY.
   const getEngagementStats = () => {
-    const total = attendees.length || 1; // avoid division by zero
-    const high = attendees.filter(a => a.engagement === 'High').length;
-    const medium = attendees.filter(a => a.engagement === 'Medium').length;
-    const low = attendees.filter(a => a.engagement === 'Low' || a.engagement === 'Pending').length;
+    const byEng = summary?.byEngagement ?? {};
+    const total = summary?.total || 1;
+    const high = byEng['High'] ?? 0;
+    const medium = byEng['Medium'] ?? 0;
+    const low = total - high - medium;
 
     return [
       { label: 'High', value: Math.round((high / total) * 100), color: 'bg-green-500' },
@@ -89,20 +98,11 @@ export default function AnalyticsPage() {
   };
   const engagementData = getEngagementStats();
 
-  // 3. Dynamic Event Performance (Top 3)
+  // Top events by check-in volume (/events/mine already carries per-event counts).
   const getPerformanceStats = () => {
-    // Create map of event ID -> Attendee Count
-    const attendanceMap: Record<string, number> = {};
-    attendees.forEach(a => {
-      if (a.status === 'checked-in') {
-         attendanceMap[a.eventId] = (attendanceMap[a.eventId] || 0) + 1;
-      }
-    });
-
-    // Map events and sort
-    const mapped = events.map(event => ({
+    const mapped = events.map((event) => ({
       event: event.title,
-      attendees: attendanceMap[event.id] || 0,
+      attendees: event.checkedInCount ?? 0,
       rating: 5.0 // Ratings not yet implemented, defaulting
     }));
 
@@ -136,7 +136,7 @@ export default function AnalyticsPage() {
               <span className="text-xs font-semibold text-green-400">{metric.change}</span>
             </div>
             <p className="text-slate-400 text-sm mb-1">{metric.label}</p>
-            <p className="text-3xl font-bold text-white">{metric.value}</p>
+            <p className="text-3xl font-bold text-white">{loading ? '…' : metric.value}</p>
           </motion.div>
         ))}
       </div>

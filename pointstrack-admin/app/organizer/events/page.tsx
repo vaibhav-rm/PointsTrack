@@ -1,47 +1,71 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Calendar, Users, MapPin, Clock, Trash2, Edit2, UserCheck, ArrowRight } from 'lucide-react'
+import { Calendar, Users, MapPin, Clock, Trash2, Edit2, UserCheck, ArrowRight, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+const PAGE_SIZE = 20
 
 export default function EventsPage() {
   const { user } = useAuth()
   const [events, setEvents] = useState<any[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(0)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
-  const fetchEvents = async () => {
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchTerm)
+      setPage(0)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [searchTerm])
+
+  const fetchEvents = useCallback(async () => {
     if (!user) return;
+    setLoading(true);
     try {
-      const fetchedEvents = await api.get<any[]>('/events/mine');
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      })
+      if (debouncedSearch) params.set('search', debouncedSearch)
+      const { data: fetchedEvents, total } = await api.getPage<any[]>(`/events/mine?${params}`);
       fetchedEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       setEvents(fetchedEvents);
+      setTotal(total ?? fetchedEvents.length);
     } catch (error) {
       console.error(error);
       toast.error("Failed to load events");
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, page, debouncedSearch]);
 
   useEffect(() => {
     fetchEvents();
-  }, [user]);
+  }, [fetchEvents]);
 
   const handleDelete = async (eventId: string) => {
     if (!confirm("Are you sure you want to delete this event? This will remove it from all students' feeds immediately.")) return;
     try {
       await api.del(`/events/${eventId}`);
       setEvents(events.filter(e => e.id !== eventId));
+      setTotal((t) => Math.max(0, t - 1));
       toast.success("Event deleted");
     } catch (error) {
       console.error(error);
       toast.error("Failed to delete event");
     }
   };
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
 
   return (
@@ -74,6 +98,16 @@ export default function EventsPage() {
         </div>
       ) : (
         <div className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search your events..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-800/50 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
           {events.map((event, index) => (
             <motion.div
               key={event.id}
@@ -138,6 +172,30 @@ export default function EventsPage() {
               </div>
             </motion.div>
           ))}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-2 py-2">
+              <p className="text-sm text-slate-400">
+                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0 || loading}
+                  className="p-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-300 disabled:opacity-40 hover:bg-slate-700/50"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm text-slate-400">Page {page + 1} of {totalPages}</span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1 || loading}
+                  className="p-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-300 disabled:opacity-40 hover:bg-slate-700/50"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

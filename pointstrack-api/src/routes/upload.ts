@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import multer from 'multer';
 import { asyncHandler } from '../lib/async-handler.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -7,11 +10,30 @@ import { storeFile } from '../lib/storage.js';
 
 export const uploadRouter = Router();
 
-// In-memory storage; we forward the buffer to R2 or local disk ourselves.
+// Disk-backed temp storage + streaming upload: the file is never held twice
+// in RAM (once by multer, once by the uploader), so concurrent 8MB uploads
+// can't spike the Node heap. Temp files are always unlinked after store.
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+    filename: (_req, file, cb) =>
+      cb(null, `pt-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`),
+  }),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB per file
 });
+
+async function storeTempFile(
+  file: Express.Multer.File,
+  prefix = 'events'
+): Promise<string> {
+  const stream = fs.createReadStream(file.path);
+  try {
+    return await storeFile(stream, file.originalname, file.mimetype, prefix);
+  } finally {
+    stream.destroy();
+    fs.promises.unlink(file.path).catch(() => {});
+  }
+}
 
 // ---- Single file ----
 uploadRouter.post(
@@ -20,12 +42,7 @@ uploadRouter.post(
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw badRequest('No file provided');
-    const url = await storeFile(
-      req.file.buffer,
-      req.file.originalname,
-      req.file.mimetype,
-      'events'
-    );
+    const url = await storeTempFile(req.file);
     res.status(201).json({ url });
   })
 );
@@ -38,9 +55,10 @@ uploadRouter.post(
   asyncHandler(async (req, res) => {
     const files = (req.files as Express.Multer.File[]) ?? [];
     if (files.length === 0) throw badRequest('No files provided');
-    const urls = await Promise.all(
-      files.map((f) => storeFile(f.buffer, f.originalname, f.mimetype, 'events'))
-    );
+    // Sequential streaming keeps peak memory flat; 10 files max so latency
+    // stays within a normal request budget.
+    const urls: string[] = [];
+    for (const f of files) urls.push(await storeTempFile(f));
     res.status(201).json({ urls });
   })
 );

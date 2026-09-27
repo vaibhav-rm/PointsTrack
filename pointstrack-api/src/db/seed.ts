@@ -51,7 +51,15 @@ async function main() {
   const seedEmails = [ORGANIZER_EMAIL, ...STUDENT_EMAILS];
 
   // Clean slate for seeded emails
-  await db.delete(accounts).where(inArray(accounts.email, seedEmails));
+  const existingAccounts = await db.select({ id: accounts.id }).from(accounts).where(inArray(accounts.email, seedEmails));
+  const existingIds = existingAccounts.map((a) => a.id);
+  if (existingIds.length > 0) {
+    await db.delete(pointsLedger).where(inArray(pointsLedger.studentId, existingIds));
+    await db.delete(attendees).where(inArray(attendees.studentId, existingIds));
+    await db.delete(eventsCatalog).where(inArray(eventsCatalog.organizerId, existingIds));
+    await db.delete(clubs).where(eq(clubs.name, 'Robotics Club'));
+    await db.delete(accounts).where(inArray(accounts.id, existingIds));
+  }
   console.log('Cleared any previously seeded accounts.');
 
   // Seed colleges (on conflict do nothing)
@@ -219,6 +227,7 @@ async function main() {
       startDate,
       endDate: startDate,
       date: buildDate(startDate),
+      startAt: new Date(buildDate(startDate)),
       location: 'Main Auditorium',
       type: 'Activity',
       points,
@@ -226,6 +235,7 @@ async function main() {
       clubName: club.name,
       clubLogo: organizer.logo,
       targetCollege: organizer.college,
+      collegeId: rvceCollege?.id ?? null,
       openToAll,
       images: [] as string[],
     };

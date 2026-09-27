@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count, ilike, or } from 'drizzle-orm';
 import {
   db,
   clubs,
@@ -15,7 +15,8 @@ import {
 } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
-import { requireAuth, requireClubMember, requirePermission } from '../middleware/auth.js';
+import { parsePagination, setTotalCount } from '../lib/pagination.js';
+import { requireAuth, requireClubMember, requirePermission, requireRole } from '../middleware/auth.js';
 import { badRequest, forbidden, notFound, conflict } from '../lib/errors.js';
 
 export const clubsRouter = Router();
@@ -66,9 +67,15 @@ clubsRouter.post(
     const accountId = req.auth!.sub;
 
     let collegeName = data.college || '';
-    if (data.collegeId) {
-      const [col] = await db.select().from(colleges).where(eq(colleges.id, data.collegeId));
+    let collegeId = data.collegeId ?? null;
+    if (collegeId) {
+      const [col] = await db.select().from(colleges).where(eq(colleges.id, collegeId));
       if (col) collegeName = col.name;
+      else collegeId = null;
+    }
+    if (!collegeId && collegeName) {
+      const [named] = await db.select({ id: colleges.id }).from(colleges).where(eq(colleges.name, collegeName));
+      if (named) collegeId = named.id;
     }
 
     if (!collegeName) {
@@ -90,7 +97,7 @@ clubsRouter.post(
         .values({
           name: data.name,
           slug,
-          collegeId: data.collegeId ?? null,
+          collegeId,
           college: collegeName,
           description: data.description,
           createdBy: accountId,
@@ -127,18 +134,57 @@ clubsRouter.post(
   })
 );
 
-// GET /clubs (Public feed of active clubs)
+// GET /clubs (Public feed of active clubs, searchable + paginated)
 clubsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
+    const { limit, offset } = parsePagination(req, 50, 200);
     const collegeId = (req.query.collegeId as string) || undefined;
-    const rows = await db
-      .select()
-      .from(clubs)
-      .where(and(eq(clubs.status, 'active'), collegeId ? eq(clubs.collegeId, collegeId) : undefined))
-      .orderBy(desc(clubs.createdAt));
-
+    const search = (req.query.search as string) || undefined;
+    const filters = [eq(clubs.status, 'active' as any)];
+    if (collegeId) filters.push(eq(clubs.collegeId, collegeId));
+    if (search) filters.push(ilike(clubs.name, `%${search}%`));
+    const where = and(...filters);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(clubs).where(where).orderBy(desc(clubs.createdAt)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(clubs).where(where),
+    ]);
+    setTotalCount(res, total);
     res.json(rows);
+  })
+);
+
+// GET /clubs/pending (Admin moderation queue — clubs awaiting approval)
+clubsRouter.get(
+  '/pending',
+  requireAuth,
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const { limit, offset } = parsePagination(req, 50, 200);
+    const where = eq(clubs.status, 'pending' as any);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(clubs).where(where).orderBy(desc(clubs.createdAt)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(clubs).where(where),
+    ]);
+    setTotalCount(res, total);
+    res.json(rows);
+  })
+);
+
+// PATCH /clubs/:id/status (Admin moderation: approve / reject / suspend)
+clubsRouter.patch(
+  '/:id/status',
+  requireAuth,
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const data = parseBody(adminClubStatusSchema, req);
+    const [updated] = await db
+      .update(clubs)
+      .set({ status: data.status, updatedAt: new Date() })
+      .where(eq(clubs.id, req.params.id))
+      .returning();
+    if (!updated) throw notFound('Club not found');
+    res.json(updated);
   })
 );
 

@@ -34,12 +34,16 @@ const UpcomingEventsScreen = () => {
 
   // Fetch the student's college feed (their college + open-to-all) plus the set
   // of events they've already applied to, then sort chronologically.
+  // collegeId is the indexed tenancy key; the legacy college name is sent as
+  // a fallback for rows predating the backfill.
   const loadData = useCallback(async () => {
     try {
-      const college = profile?.college ? `?college=${encodeURIComponent(profile.college)}` : '';
+      const params = new URLSearchParams({ limit: '100' });
+      if (profile?.collegeId) params.set('collegeId', profile.collegeId);
+      else if (profile?.college) params.set('college', profile.college);
       const [eventsData, myApplications] = await Promise.all([
-        api.get<UpcomingEvent[]>(`/events${college}`),
-        api.get<any[]>('/attendees/mine'),
+        api.get<UpcomingEvent[]>(`/events?${params}`),
+        api.get<any[]>('/attendees/mine?limit=500'),
       ]);
       eventsData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       setEvents(eventsData);
@@ -49,7 +53,7 @@ const UpcomingEventsScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [profile?.college]);
+  }, [profile?.collegeId, profile?.college]);
 
   useFocusEffect(
     useCallback(() => {

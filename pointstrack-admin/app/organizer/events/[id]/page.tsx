@@ -1,17 +1,28 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, Calendar, Clock, MapPin, Users, Award, Search,
   Mail, CheckCircle, XCircle, Edit2, Globe, Download,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import VolunteersCard from '@/components/organizer/VolunteersCard'
 import toast from 'react-hot-toast'
+
+const PAGE_SIZE = 50
+
+interface EventSummary {
+  total: number
+  checkedIn: number
+  pending: number
+  rejected: number
+  waitlisted: number
+}
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -19,22 +30,52 @@ export default function EventDetailPage() {
 
   const [event, setEvent] = useState<any | null>(null)
   const [attendees, setAttendees] = useState<any[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(0)
+  const [eventSummary, setEventSummary] = useState<EventSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkProcessing, setBulkProcessing] = useState(false)
 
   useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchTerm)
+      setPage(0)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [searchTerm])
+
+  const loadAttendees = useCallback(async () => {
+    if (!user || !id) return
+    try {
+      const params = new URLSearchParams({
+        eventId: id as string,
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      })
+      if (debouncedSearch) params.set('search', debouncedSearch)
+      const { data, total } = await api.getPage<any[]>(`/attendees?${params}`)
+      setAttendees(data)
+      setTotal(total ?? data.length)
+    } catch (error) {
+      console.error(error)
+      toast.error('Failed to load attendees')
+    }
+  }, [user, id, page, debouncedSearch])
+
+  useEffect(() => {
     if (!user || !id) return
     const load = async () => {
       try {
-        const [ev, atts] = await Promise.all([
+        const [ev, summary] = await Promise.all([
           api.get<any>(`/events/${id}`),
-          api.get<any[]>(`/attendees?eventId=${id}`),
+          api.get<EventSummary>(`/attendees/summary?eventId=${id}`),
         ])
         setEvent(ev)
-        setAttendees(atts)
+        setEventSummary(summary)
       } catch (error) {
         console.error(error)
         toast.error('Failed to load event')
@@ -43,6 +84,19 @@ export default function EventDetailPage() {
       }
     }
     load()
+  }, [user, id])
+
+  useEffect(() => {
+    loadAttendees()
+  }, [loadAttendees])
+
+  const refreshSummary = useCallback(async () => {
+    if (!user || !id) return
+    try {
+      setEventSummary(await api.get<EventSummary>(`/attendees/summary?eventId=${id}`))
+    } catch (error) {
+      console.error(error)
+    }
   }, [user, id])
 
   const handleStatusUpdate = async (attendeeId: string, newStatus: string, newEngagement: string) => {
@@ -56,6 +110,7 @@ export default function EventDetailPage() {
             : a
         )
       )
+      refreshSummary()
       toast.success(newStatus === 'checked-in' ? 'Points allotted successfully' : 'Registration rejected')
     } catch (error) {
       console.error(error)
@@ -81,6 +136,7 @@ export default function EventDetailPage() {
       )
       toast.success(`${ids.length} attendee${ids.length > 1 ? 's' : ''} ${newStatus === 'checked-in' ? 'checked in' : 'rejected'}`)
       setSelected(new Set())
+      refreshSummary()
     } catch (error) {
       console.error(error)
       toast.error('Bulk update failed')
@@ -97,28 +153,45 @@ export default function EventDetailPage() {
     })
   }
 
-  const exportCsv = () => {
-    const headers = ['Name', 'Email', 'Status', 'Engagement', 'Points', 'Check-in time']
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-    const rows = attendees.map((a) =>
-      [a.name, a.email, a.status, a.engagement, a.status === 'checked-in' ? event?.points ?? 0 : 0,
-       a.checkInTimestamp ? new Date(a.checkInTimestamp).toLocaleString() : ''].map(esc).join(',')
-    )
-    const csv = [headers.map(esc).join(','), ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${(event?.title || 'event').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-attendees.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  const exportCsv = async () => {
+    // Export the full server-side result set (paged fetch), not just the
+    // visible page, so large rosters still export completely.
+    try {
+      const all: any[] = []
+      const LIMIT = 500
+      for (let offset = 0; ; offset += LIMIT) {
+        const params = new URLSearchParams({
+          eventId: id as string,
+          limit: String(LIMIT),
+          offset: String(offset),
+        })
+        if (debouncedSearch) params.set('search', debouncedSearch)
+        const { data } = await api.getPage<any[]>(`/attendees?${params}`)
+        all.push(...data)
+        if (data.length < LIMIT) break
+      }
+      const headers = ['Name', 'Email', 'Status', 'Engagement', 'Points', 'Check-in time']
+      const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+      const rows = all.map((a) =>
+        [a.name, a.email, a.status, a.engagement, a.status === 'checked-in' ? event?.points ?? 0 : 0,
+         a.checkInTimestamp ? new Date(a.checkInTimestamp).toLocaleString() : ''].map(esc).join(',')
+      )
+      const csv = [headers.map(esc).join(','), ...rows].join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${(event?.title || 'event').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-attendees.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error(error)
+      toast.error('CSV export failed')
+    }
   }
 
-  const filtered = attendees.filter(
-    (a) =>
-      a.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Search is server-side now; the page holds the filtered result directly.
+  const filtered = attendees
 
   // Pending + waitlisted attendees are the ones an organizer can still act on.
   const actionable = (a: any) => a.status === 'pending' || a.status === 'waitlisted'
@@ -133,10 +206,12 @@ export default function EventDetailPage() {
     })
   }
 
-  const checkedIn = attendees.filter((a) => a.status === 'checked-in').length
-  const pending = attendees.filter((a) => a.status === 'pending').length
-  const waitlisted = attendees.filter((a) => a.status === 'waitlisted').length
+  const checkedIn = eventSummary?.checkedIn ?? attendees.filter((a) => a.status === 'checked-in').length
+  const pending = eventSummary?.pending ?? attendees.filter((a) => a.status === 'pending').length
+  const waitlisted = eventSummary?.waitlisted ?? attendees.filter((a) => a.status === 'waitlisted').length
+  const registered = eventSummary?.total ?? total
   const pointsAwarded = checkedIn * (event?.points ?? 0)
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   if (loading) {
     return (
@@ -198,7 +273,7 @@ export default function EventDetailPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <Stat label="Registered" value={attendees.length} color="text-white" />
+        <Stat label="Registered" value={registered} color="text-white" />
         <Stat label="Checked in" value={checkedIn} color="text-emerald-400" />
         <Stat label="Pending" value={pending} color="text-yellow-400" />
         <Stat label="Waitlisted" value={waitlisted} color="text-orange-400" />
@@ -350,6 +425,28 @@ export default function EventDetailPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800">
+              <p className="text-sm text-slate-400">
+                {total === 0 ? 'No results' : `Showing ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}`}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="p-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-300 disabled:opacity-40 hover:bg-slate-700/50"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm text-slate-400">Page {page + 1} of {totalPages}</span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="p-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-300 disabled:opacity-40 hover:bg-slate-700/50"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}

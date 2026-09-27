@@ -20,6 +20,7 @@ import {
   generateRefreshToken,
   hashToken,
   refreshExpiry,
+  type Role,
 } from '../lib/jwt.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
@@ -68,7 +69,7 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-async function issueTokens(account: { id: string; email: string; role: 'organizer' | 'student' }) {
+async function issueTokens(account: { id: string; email: string; role: Role }) {
   const accessToken = signAccessToken({
     sub: account.id,
     role: account.role,
@@ -118,6 +119,16 @@ authRouter.post(
 
     const passwordHash = await hashPassword(data.password);
 
+    // Resolve canonical collegeId (explicit id wins, else exact name match).
+    let organizerCollegeId = data.collegeId ?? null;
+    if (!organizerCollegeId) {
+      const [named] = await db
+        .select({ id: colleges.id })
+        .from(colleges)
+        .where(eq(colleges.name, data.college));
+      if (named) organizerCollegeId = named.id;
+    }
+
     const result = await db.transaction(async (tx) => {
       const [account] = await tx
         .insert(accounts)
@@ -153,7 +164,7 @@ authRouter.post(
         .values({
           name: data.clubName,
           slug,
-          collegeId: data.collegeId ?? null,
+          collegeId: organizerCollegeId,
           college: data.college,
           description: data.bio,
           createdBy: account.id,
@@ -212,7 +223,17 @@ authRouter.post(
     const requiredPoints = data.lateralEntry ? 80 : 100;
     const normalizedUsn = data.usn.trim().toUpperCase();
 
-    // Verify college or match from colleges table if collegeId provided
+    // USNs are globally unique (unique index) — fail fast with a friendly
+    // 409 instead of a raw constraint violation from the transaction.
+    const [existingUsn] = await db
+      .select({ id: students.id })
+      .from(students)
+      .where(eq(students.usn, normalizedUsn));
+    if (existingUsn) throw conflict('A student with this USN is already registered.');
+
+    // Resolve the canonical collegeId from every hint the client may send:
+    // explicit id → VTU code → exact college name. collegeId is the tenancy
+    // key everywhere; the free-text name is display-only.
     let collegeId = data.collegeId;
     if (!collegeId && data.collegeCode) {
       const [matchedCollege] = await db
@@ -220,6 +241,13 @@ authRouter.post(
         .from(colleges)
         .where(eq(colleges.vtuCode, data.collegeCode.toUpperCase()));
       if (matchedCollege) collegeId = matchedCollege.id;
+    }
+    if (!collegeId && data.college) {
+      const [namedCollege] = await db
+        .select()
+        .from(colleges)
+        .where(eq(colleges.name, data.college));
+      if (namedCollege) collegeId = namedCollege.id;
     }
 
     // Resolve active academic policy
@@ -442,7 +470,7 @@ authRouter.delete(
 authRouter.get(
   '/admin/system-status',
   requireAuth,
-  requireRole('admin' as any),
+  requireRole('admin'),
   asyncHandler(async (_req, res) => {
     res.json({ status: 'ok', environment: 'production-canary' });
   })

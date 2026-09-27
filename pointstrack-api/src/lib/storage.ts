@@ -31,7 +31,7 @@ function safeName(originalName: string): string {
 }
 
 export async function storeFile(
-  buffer: Buffer,
+  input: Buffer | Readable,
   originalName: string,
   contentType: string,
   prefix = 'uploads'
@@ -39,11 +39,13 @@ export async function storeFile(
   const key = `${prefix}/${safeName(originalName)}`;
 
   if (useR2 && s3) {
+    // The S3 client streams a Readable body without buffering the whole file
+    // in memory, so large uploads don't spike the Node heap.
     await s3.send(
       new PutObjectCommand({
         Bucket: env.storage.r2Bucket,
         Key: key,
-        Body: buffer,
+        Body: input as any,
         ContentType: contentType,
       })
     );
@@ -54,7 +56,17 @@ export async function storeFile(
 
   const filePath = path.join(UPLOAD_DIR, key);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, buffer);
+  if (Buffer.isBuffer(input)) {
+    fs.writeFileSync(filePath, input);
+  } else {
+    await new Promise<void>((resolve, reject) => {
+      const out = fs.createWriteStream(filePath);
+      input.pipe(out);
+      out.on('finish', () => resolve());
+      out.on('error', reject);
+      input.on('error', reject);
+    });
+  }
   return `${env.apiUrl.replace(/\/$/, '')}/uploads/${key}`;
 }
 

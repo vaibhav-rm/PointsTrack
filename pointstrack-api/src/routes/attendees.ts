@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq, and, asc, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, asc, desc, inArray, sql, ilike, or, count, gte } from 'drizzle-orm';
 import {
   db,
   attendees,
@@ -11,7 +11,7 @@ import {
 } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
-import { parsePagination } from '../lib/pagination.js';
+import { parsePagination, setTotalCount } from '../lib/pagination.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { requireIdempotency } from '../middleware/idempotency.js';
 import { badRequest, forbidden, notFound, conflict } from '../lib/errors.js';
@@ -324,35 +324,115 @@ attendeesRouter.get(
   requireRole('student'),
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req);
-    const rows = await db
-      .select()
-      .from(attendees)
-      .where(eq(attendees.studentId, req.auth!.sub))
-      .orderBy(desc(attendees.checkInTimestamp))
-      .limit(limit)
-      .offset(offset);
+    const where = eq(attendees.studentId, req.auth!.sub);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(attendees).where(where).orderBy(desc(attendees.checkInTimestamp)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(attendees).where(where),
+    ]);
+    setTotalCount(res, total);
     res.json(rows);
   })
 );
 
-// Organizer's attendees, optionally narrowed to one event (?eventId=).
+// Organizer's attendees, optionally narrowed to one event (?eventId=) and
+// filtered server-side (?status=&search=) so large rosters never cross the
+// wire. The total is exposed via X-Total-Count for real pagers.
 attendeesRouter.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req);
     const eventId = (req.query.eventId as string) || undefined;
+    const status = (req.query.status as string) || undefined;
+    const search = (req.query.search as string) || undefined;
+
+    const filters = [eq(attendees.organizerId, req.auth!.sub)];
+    if (eventId) filters.push(eq(attendees.eventId, eventId));
+    if (status) filters.push(eq(attendees.status, status as any));
+    if (search) {
+      const searchCond = or(
+        ilike(attendees.name, `%${search}%`),
+        ilike(attendees.email, `%${search}%`),
+        ilike(attendees.eventTitle, `%${search}%`)
+      );
+      if (searchCond) filters.push(searchCond);
+    }
+    const where = and(...filters);
+
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(attendees).where(where).orderBy(desc(attendees.checkInTimestamp)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(attendees).where(where),
+    ]);
+    setTotalCount(res, total);
+    res.json(rows);
+  })
+);
+
+// Organizer attendee counts (dashboard stat cards + analytics) without
+// downloading every row. Optional ?eventId= scopes to one event.
+attendeesRouter.get(
+  '/summary',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const eventId = (req.query.eventId as string) || undefined;
+    const base = eventId
+      ? and(eq(attendees.organizerId, req.auth!.sub), eq(attendees.eventId, eventId))
+      : eq(attendees.organizerId, req.auth!.sub);
+
     const rows = await db
-      .select()
+      .select({ status: attendees.status, total: sql<number>`(count(*))::int` })
       .from(attendees)
-      .where(
-        eventId
-          ? and(eq(attendees.organizerId, req.auth!.sub), eq(attendees.eventId, eventId))
-          : eq(attendees.organizerId, req.auth!.sub)
-      )
-      .orderBy(desc(attendees.checkInTimestamp))
-      .limit(limit)
-      .offset(offset);
+      .where(base)
+      .groupBy(attendees.status);
+
+    const engagementRows = await db
+      .select({ engagement: attendees.engagement, total: sql<number>`(count(*))::int` })
+      .from(attendees)
+      .where(base)
+      .groupBy(attendees.engagement);
+
+    const byStatus: Record<string, number> = {};
+    for (const r of rows) byStatus[r.status] = r.total;
+    const byEngagement: Record<string, number> = {};
+    for (const r of engagementRows) byEngagement[r.engagement] = r.total;
+    const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
+    res.json({
+      total,
+      checkedIn: byStatus['checked-in'] ?? 0,
+      pending: byStatus['pending'] ?? 0,
+      rejected: byStatus['rejected'] ?? 0,
+      waitlisted: byStatus['waitlisted'] ?? 0,
+      byEngagement,
+    });
+  })
+);
+
+// Daily check-in counts for the last N days (attendance trend chart),
+// aggregated in SQL so the analytics page fetches ~7 rows, not ~70k.
+attendeesRouter.get(
+  '/checkins/daily',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const rawDays = parseInt(String(req.query.days ?? '7'), 10);
+    const days = Number.isFinite(rawDays) ? Math.min(90, Math.max(1, rawDays)) : 7;
+    const eventId = (req.query.eventId as string) || undefined;
+
+    const filters = [
+      eq(attendees.organizerId, req.auth!.sub),
+      eq(attendees.status, 'checked-in' as any),
+      gte(attendees.checkInTimestamp, sql`now() - (${days}::int * interval '1 day')`),
+    ];
+    if (eventId) filters.push(eq(attendees.eventId, eventId));
+
+    const rows = await db
+      .select({
+        day: sql<string>`(date_trunc('day', ${attendees.checkInTimestamp}))::date::text`,
+        total: sql<number>`(count(*))::int`,
+      })
+      .from(attendees)
+      .where(and(...filters))
+      .groupBy(sql`date_trunc('day', ${attendees.checkInTimestamp})`)
+      .orderBy(sql`date_trunc('day', ${attendees.checkInTimestamp})`);
     res.json(rows);
   })
 );
@@ -383,9 +463,18 @@ attendeesRouter.patch(
       .from(attendees)
       .where(and(inArray(attendees.id, ids), eq(attendees.organizerId, req.auth!.sub)));
 
-    const updated = [];
-    for (const a of rows) {
-      updated.push(await applyStatusChange(a.id, status, engagement));
+    // Bounded parallelism: each item is its own transaction + push fan-out,
+    // so sequential processing takes minutes at 500 ids while unbounded
+    // parallelism would stampede the pool. 10 in flight is the sweet spot
+    // for the default pool size; raise both together when scaling up.
+    const CONCURRENCY = 10;
+    const updated: unknown[] = [];
+    for (let i = 0; i < rows.length; i += CONCURRENCY) {
+      const batch = rows.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map((a) => applyStatusChange(a.id, status, engagement))
+      );
+      updated.push(...results);
     }
 
     res.json({ updated: updated.length, skipped: ids.length - updated.length, attendees: updated });

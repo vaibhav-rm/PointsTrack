@@ -21,7 +21,9 @@ export default function DashboardPage() {
     const fetchDashboardData = async () => {
       if (!user) return;
       try {
-        const fetchedEvents = await api.get<any[]>('/events/mine');
+        // Stats are computed over the organizer's events; the high limit
+        // keeps small clubs exact while the server caps runaway downloads.
+        const { data: fetchedEvents, total } = await api.getPage<any[]>('/events/mine?limit=500');
 
         let internal = 0;
         let open = 0;
@@ -39,7 +41,7 @@ export default function DashboardPage() {
         fetchedEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
         setStats({
-          totalEvents: fetchedEvents.length,
+          totalEvents: total ?? fetchedEvents.length,
           internalEvents: internal,
           openEvents: open,
           totalPoints: points

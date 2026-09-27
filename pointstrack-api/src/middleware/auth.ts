@@ -63,6 +63,42 @@ const ROLE_PERMISSIONS: Record<ClubRole, string[]> = {
 };
 
 // Requires a valid access token; attaches the decoded payload as req.auth.
+//
+// Hot path: this runs on EVERY authenticated request, so the account-status
+// lookup is cached in-memory for 60s. Suspension still takes effect within a
+// minute; a compromised token revoked via account deletion is rejected at the
+// next cache expiry. For multi-instance deployments, front this with Redis or
+// shorten AUTH_STATUS_CACHE_TTL_MS — correctness degrades gracefully to "up
+// to TTL" either way.
+const statusCache = new Map<string, { status: string; expiresAt: number }>();
+const STATUS_TTL_MS = parseInt(process.env.AUTH_STATUS_CACHE_TTL_MS ?? '60000', 10);
+
+async function getAccountStatus(accountId: string): Promise<string | null> {
+  const now = Date.now();
+  const cached = statusCache.get(accountId);
+  if (cached && cached.expiresAt > now) return cached.status;
+
+  const [account] = await db
+    .select({ status: accounts.status })
+    .from(accounts)
+    .where(eq(accounts.id, accountId));
+  if (!account) {
+    statusCache.delete(accountId);
+    return null;
+  }
+  statusCache.set(accountId, { status: account.status, expiresAt: now + STATUS_TTL_MS });
+  // Bound memory: evict an arbitrary old entry once the cache gets large.
+  if (statusCache.size > 10000) {
+    const firstKey = statusCache.keys().next().value;
+    if (firstKey) statusCache.delete(firstKey);
+  }
+  return account.status;
+}
+
+export function invalidateAccountStatus(accountId: string) {
+  statusCache.delete(accountId);
+}
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
@@ -77,11 +113,8 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   }
 
   try {
-    const [account] = await db
-      .select({ status: accounts.status })
-      .from(accounts)
-      .where(eq(accounts.id, payload.sub));
-    if (!account || account.status === 'suspended') {
+    const status = await getAccountStatus(payload.sub);
+    if (!status || status === 'suspended') {
       return next(unauthorized('Account is suspended or disabled'));
     }
     req.auth = payload;

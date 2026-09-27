@@ -26,7 +26,7 @@ export default function ClubProfileScreen() {
       try {
         const [orgProfile, eventsArray] = await Promise.all([
           api.get<any>(`/profile/organizer/${organizerId}`),
-          api.get<any[]>(`/events/by-organizer/${organizerId}`),
+          api.get<any[]>(`/events/by-organizer/${organizerId}?limit=100`),
         ]);
         setClub(orgProfile);
         eventsArray.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());

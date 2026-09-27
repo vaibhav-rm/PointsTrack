@@ -27,6 +27,12 @@ export function requireIdempotency() {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + KEY_EXPIRY_HOURS * 60 * 60 * 1000);
 
+    // Best-effort garbage collection of expired keys (indexed delete, no
+    // cron needed). Fire-and-forget so it never blocks the request.
+    db.delete(idempotencyKeys)
+      .where(lt(idempotencyKeys.expiresAt, now))
+      .catch((err) => console.error('Idempotency GC failed:', err));
+
     try {
       // 1. Check existing key
       const [existing] = await db

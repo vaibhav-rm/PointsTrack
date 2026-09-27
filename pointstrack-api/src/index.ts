@@ -50,15 +50,19 @@ app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
 // Rate limiting. A generous global ceiling protects every route from abuse,
 // and a strict limiter on /auth blunts brute-force / credential-stuffing.
+// Limits are env-configurable per deployment size. NOTE: the default
+// in-memory store is per-process — when running multiple instances behind a
+// load balancer, set RATE_LIMIT_STORE=redis (and provide REDIS_URL) via a
+// Redis-backed store; otherwise each instance enforces its own budget.
 const globalLimiter = rateLimit({
   windowMs: 60_000,
-  max: env.isProd ? 300 : 100_000,
+  max: parseInt(process.env.RATE_LIMIT_GLOBAL_MAX ?? (env.isProd ? '300' : '100000'), 10),
   standardHeaders: true,
   legacyHeaders: false,
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60_000,
-  max: env.isProd ? 50 : 100_000,
+  max: parseInt(process.env.RATE_LIMIT_AUTH_MAX ?? (env.isProd ? '50' : '100000'), 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts, please try again later.' },

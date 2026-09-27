@@ -144,6 +144,7 @@ export interface StudentProfile {
   email: string;
   phone?: string | null;
   college: string;
+  collegeId?: string | null;
   collegeCode?: string | null;
   region?: string | null;
   usn: string;

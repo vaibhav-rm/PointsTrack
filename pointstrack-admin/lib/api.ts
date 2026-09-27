@@ -107,6 +107,25 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  // Paginated fetch: same as get, but also returns the server's X-Total-Count
+  // so pages can render real pagers instead of downloading every row.
+  getPage: async <T>(path: string): Promise<{ data: T; total: number | null }> => {
+    const token = getAccessToken()
+    const res = await fetch(`${API_URL}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+    if (res.status === 401 && getRefreshToken()) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) return api.getPage<T>(path)
+    }
+    if (!res.ok) throw new ApiError(res.status, await parseError(res))
+    const data = (await res.json()) as T
+    const totalHeader = res.headers.get('X-Total-Count')
+    return { data, total: totalHeader ? parseInt(totalHeader, 10) : null }
+  },
 }
 
 // ---- File uploads ----

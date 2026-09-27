@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 // ---- Enums ----
-export const roleEnum = pgEnum('role', ['organizer', 'student']);
+export const roleEnum = pgEnum('role', ['organizer', 'student', 'admin']);
 export const accountStatusEnum = pgEnum('account_status', ['active', 'pending_verification', 'suspended']);
 export const clubStatusEnum = pgEnum('club_status', ['pending', 'active', 'rejected', 'suspended', 'archived']);
 export const clubRoleEnum = pgEnum('club_role', ['owner', 'admin', 'event_manager', 'scanner', 'member']);
@@ -106,6 +106,7 @@ export const clubMemberships = pgTable(
   (t) => ({
     accountIdx: index('club_memberships_account_idx').on(t.accountId),
     clubIdx: index('club_memberships_club_idx').on(t.clubId),
+    clubStatusIdx: index('club_memberships_club_status_idx').on(t.clubId, t.status),
     accountClubUnique: uniqueIndex('club_memberships_account_club_unique').on(
       t.accountId,
       t.clubId
@@ -232,7 +233,10 @@ export const students = pgTable(
   },
   (t) => ({
     collegeIdx: index('students_college_idx').on(t.college),
-    usnIdx: index('students_usn_idx').on(t.usn),
+    collegeIdIdx: index('students_college_id_idx').on(t.collegeId),
+    // USNs are globally unique across VTU colleges; a unique index is the
+    // final backstop against duplicate student identities at scale.
+    usnUnique: uniqueIndex('students_usn_unique').on(t.usn),
   })
 );
 
@@ -268,13 +272,19 @@ export const eventsCatalog = pgTable(
     startTime: text('start_time'),
     endTime: text('end_time'),
     date: text('date').notNull(),
+    // Canonical timestamp for sorting/range queries. Dual-written with the
+    // legacy `date` text column (kept for backwards compatibility) so feeds
+    // can order/filter by a real timestamptz at scale.
+    startAt: timestamp('start_at', { withTimezone: true }),
     location: text('location'),
     type: text('type').notNull().default('Activity'),
     points: integer('points').notNull().default(10),
     capacity: integer('capacity').notNull().default(0),
     clubName: text('club_name'),
     clubLogo: text('club_logo'),
+    // Display snapshot only — the canonical tenancy key is `collegeId`.
     targetCollege: text('target_college'),
+    collegeId: uuid('college_id').references(() => colleges.id, { onDelete: 'set null' }),
     openToAll: boolean('open_to_all').notNull().default(false),
     images: jsonb('images').$type<string[]>().notNull().default([]),
     certificateUrl: text('certificate_url'),
@@ -284,6 +294,15 @@ export const eventsCatalog = pgTable(
     clubIdx: index('events_catalog_club_idx').on(t.clubId),
     organizerIdx: index('events_catalog_organizer_idx').on(t.organizerId),
     targetCollegeIdx: index('events_catalog_target_college_idx').on(t.targetCollege),
+    collegeIdIdx: index('events_catalog_college_id_idx').on(t.collegeId),
+    // Hot feed paths: chronological ordering + college-scoped feeds.
+    startAtIdx: index('events_catalog_start_at_idx').on(t.startAt),
+    dateIdx: index('events_catalog_date_idx').on(t.date),
+    targetCollegeDateIdx: index('events_catalog_target_college_date_idx').on(
+      t.targetCollege,
+      t.date
+    ),
+    openToAllIdx: index('events_catalog_open_to_all_idx').on(t.openToAll),
   })
 );
 
@@ -314,6 +333,12 @@ export const attendees = pgTable(
     organizerIdx: index('attendees_organizer_idx').on(t.organizerId),
     eventIdx: index('attendees_event_idx').on(t.eventId),
     studentIdx: index('attendees_student_idx').on(t.studentId),
+    // Hot paths: per-event rosters filtered by status, organizer queues.
+    eventStatusIdx: index('attendees_event_status_idx').on(t.eventId, t.status),
+    organizerStatusIdx: index('attendees_organizer_status_idx').on(
+      t.organizerId,
+      t.status
+    ),
     eventStudentUnique: uniqueIndex('attendees_event_student_unique').on(
       t.eventId,
       t.studentId
@@ -360,6 +385,13 @@ export const pointsLedger = pgTable(
   (t) => ({
     studentIdx: index('points_ledger_student_idx').on(t.studentId),
     clubIdx: index('points_ledger_club_idx').on(t.clubId),
+    // Wallet reads always filter by student + approved status; event pages
+    // look up awards per event. Composite indexes keep both O(log n).
+    studentStatusIdx: index('points_ledger_student_status_idx').on(
+      t.studentId,
+      t.ledgerStatus
+    ),
+    eventIdx: index('points_ledger_event_idx').on(t.eventId),
     attendeeAwardUnique: uniqueIndex('points_ledger_attendee_award_unique')
       .on(t.attendeeId)
       .where(sql`ledger_type = 'award' AND attendee_id IS NOT NULL`),
