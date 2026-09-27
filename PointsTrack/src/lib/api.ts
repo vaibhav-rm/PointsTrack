@@ -158,7 +158,40 @@ export async function uploadImage(uri: string): Promise<string> {
 export interface AuthUser {
   id: string;
   email: string;
-  role: 'organizer' | 'student';
+  role: 'organizer' | 'student' | 'admin';
+}
+
+export type ClubRole = 'owner' | 'admin' | 'event_manager' | 'scanner' | 'member';
+export type MembershipStatus = 'pending' | 'active' | 'rejected' | 'removed';
+
+export interface ClubItem {
+  id: string;
+  name: string;
+  slug: string;
+  collegeId?: string | null;
+  college?: string | null;
+  description?: string | null;
+  status: string;
+  branding?: { logoUrl?: string | null; accentColor?: string | null } | null;
+  role?: ClubRole;
+}
+
+export interface MembershipItem {
+  id: string;
+  accountId: string;
+  clubId: string;
+  role: ClubRole;
+  status: MembershipStatus;
+  club: ClubItem;
+}
+
+// Staff roles that grant organizer powers in-app. Presidents (owners) always
+// qualify — this is how a student holds both a student profile and an
+// organizer account in one login.
+export const ORGANIZER_ROLES: ClubRole[] = ['owner', 'admin', 'event_manager'];
+
+export function membershipGrantsOrganizer(m: { role: ClubRole; status: MembershipStatus }): boolean {
+  return m.status === 'active' && (ORGANIZER_ROLES as string[]).includes(m.role);
 }
 
 export interface StudentProfile {
@@ -182,7 +215,10 @@ interface AuthResponse {
   accessToken: string;
   refreshToken: string;
   user: AuthUser;
-  profile: StudentProfile;
+  profile: StudentProfile | null;
+  club?: unknown | null;
+  clubs?: ClubItem[];
+  memberships?: MembershipItem[];
 }
 
 // ---- Auth helpers (persist tokens as a side effect) ----
@@ -211,7 +247,13 @@ export async function registerStudent(payload: {
   return data;
 }
 
-export async function fetchMe(): Promise<{ user: AuthUser; profile: StudentProfile }> {
+export async function fetchMe(): Promise<{
+  user: AuthUser;
+  profile: StudentProfile | null;
+  club?: unknown | null;
+  clubs?: ClubItem[];
+  memberships?: MembershipItem[];
+}> {
   return api.get('/auth/me');
 }
 
@@ -256,4 +298,110 @@ export async function deleteAccount(): Promise<void> {
   } finally {
     await clearTokens();
   }
+}
+
+// ---- Clubs: browse, join (verified by club), leave ----
+export async function fetchClubs(query?: { search?: string; collegeId?: string }): Promise<ClubItem[]> {
+  const params = new URLSearchParams({ limit: '50' });
+  if (query?.search) params.append('search', query.search);
+  if (query?.collegeId) params.append('collegeId', query.collegeId);
+  return api.get<ClubItem[]>(`/clubs?${params}`);
+}
+
+export interface MembershipRow {
+  membership: {
+    id: string;
+    accountId: string;
+    clubId: string;
+    role: ClubRole;
+    status: MembershipStatus;
+  };
+  club: ClubItem;
+}
+
+export async function fetchMyMemberships(includePending = true): Promise<MembershipRow[]> {
+  return api.get<MembershipRow[]>(
+    `/clubs/my-memberships${includePending ? '?includePending=true' : ''}`
+  );
+}
+
+export async function joinClub(clubId: string): Promise<unknown> {
+  return api.post(`/clubs/${clubId}/join`, {}, { idempotencyKey: newIdempotencyKey() });
+}
+
+export async function leaveClub(clubId: string, membershipId: string): Promise<void> {
+  await api.del(`/clubs/${clubId}/members/${membershipId}`);
+}
+
+// ---- Club verification (owners/admins approve member requests) ----
+export interface ClubMemberRow {
+  membershipId: string;
+  accountId: string;
+  role: ClubRole;
+  status: MembershipStatus;
+  joinedAt: string;
+  studentName: string | null;
+  studentEmail: string | null;
+  usn: string | null;
+}
+
+export async function fetchClubMembers(clubId: string, status?: MembershipStatus): Promise<ClubMemberRow[]> {
+  const qs = status ? `?status=${status}` : '';
+  return api.get<ClubMemberRow[]>(`/clubs/${clubId}/members${qs}`);
+}
+
+export async function moderateMember(
+  clubId: string,
+  membershipId: string,
+  status: 'active' | 'rejected' | 'removed',
+  role?: ClubRole
+): Promise<unknown> {
+  return api.patch(`/clubs/${clubId}/members/${membershipId}`, { status, role });
+}
+
+// ---- Organizer events (same API the web dashboard uses) ----
+export interface OrgEvent {
+  id: string;
+  title: string;
+  description?: string | null;
+  date: string;
+  startDate?: string;
+  location?: string | null;
+  points: number;
+  capacity: number;
+  openToAll: boolean;
+  attendeeCount?: number;
+  checkedInCount?: number;
+}
+
+export async function fetchMyOrgEvents(): Promise<OrgEvent[]> {
+  return api.get<OrgEvent[]>('/events/mine?limit=100');
+}
+
+export async function createOrgEvent(payload: {
+  title: string;
+  description?: string;
+  startDate: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  points?: number;
+  capacity?: number;
+  openToAll?: boolean;
+  images?: string[];
+}): Promise<OrgEvent> {
+  return api.post<OrgEvent>('/events', payload, { idempotencyKey: newIdempotencyKey() });
+}
+
+export async function deleteOrgEvent(eventId: string): Promise<void> {
+  await api.del(`/events/${eventId}`);
+}
+
+export async function setAttendeeStatus(
+  attendeeId: string,
+  status: 'checked-in' | 'rejected',
+  engagement = 'High'
+): Promise<unknown> {
+  return api.patch(`/attendees/${attendeeId}`, { status, engagement });
 }

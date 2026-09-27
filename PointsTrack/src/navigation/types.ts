@@ -18,6 +18,11 @@ export type AppStackParamList = {
     ScanAttendee: { eventId: string; eventTitle: string };
     ManageVolunteers: { eventId: string; eventTitle: string };
     SemesterWrapped: undefined;
+    Organize: undefined;
+    OrgEvents: undefined;
+    CreateOrgEvent: undefined;
+    Clubs: undefined;
+    ClubMembers: { clubId: string; clubName: string };
 };
 
 export type RootStackParamList = {

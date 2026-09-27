@@ -187,11 +187,40 @@ eventsRouter.post(
   requireClub,
   asyncHandler(async (req, res) => {
     const data = parseBody(eventSchema, req);
-    const [profile] = await db
+    let [profile] = await db
       .select()
       .from(organizers)
       .where(eq(organizers.id, req.auth!.sub));
-    if (!profile) throw notFound('Organizer profile not found');
+    // Student club staff (e.g. a president on a student account) pass
+    // requireClub via membership but may have no legacy organizer row yet —
+    // provision it from their first active club instead of 404ing.
+    if (!profile) {
+      const [row] = await db
+        .select({ club: clubs })
+        .from(clubMemberships)
+        .innerJoin(clubs, eq(clubs.id, clubMemberships.clubId))
+        .where(
+          and(
+            eq(clubMemberships.accountId, req.auth!.sub),
+            eq(clubMemberships.status, 'active')
+          )
+        );
+      if (!row) throw notFound('Organizer profile not found');
+      [profile] = await db
+        .insert(organizers)
+        .values({
+          id: req.auth!.sub,
+          email: req.auth!.email,
+          clubName: row.club.name,
+          college: row.club.college || '',
+        })
+        .onConflictDoNothing({ target: organizers.id })
+        .returning();
+      if (!profile) {
+        [profile] = await db.select().from(organizers).where(eq(organizers.id, req.auth!.sub));
+      }
+      if (!profile) throw notFound('Organizer profile not found');
+    }
 
     const [event] = await db
       .insert(eventsCatalog)

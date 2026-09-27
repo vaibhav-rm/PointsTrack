@@ -12,7 +12,7 @@ import QRCode from 'react-native-qrcode-svg';
 
 const ProfileScreen = () => {
   const { userData, loading } = useUserData();
-  const { logout, deleteAccount } = useAuth();
+  const { logout, deleteAccount, user, memberships, isPresident, canOrganize } = useAuth();
   const [exporting, setExporting] = useState(false);
 
   const handleDownloadTranscript = async () => {
@@ -71,7 +71,33 @@ const ProfileScreen = () => {
   return (
     <SafeAreaView className="flex-1 bg-background dark:bg-darkBackground">
       <ScrollView className="px-6 py-4">
-        <Text className="text-3xl font-pbold text-primary dark:text-white mb-8">Profile</Text>
+        <Text className="text-3xl font-pbold text-primary dark:text-white mb-2">Profile</Text>
+
+        {/* Role + club standing */}
+        <View className="flex-row flex-wrap gap-2 mb-6">
+          <View className="bg-primary/10 dark:bg-primary/20 px-3 py-1.5 rounded-full">
+            <Text className="text-primary dark:text-indigo-400 font-pmedium text-xs">
+              {user?.role === 'organizer' ? 'Organizer' : user?.role === 'admin' ? 'Admin' : 'Student'}
+            </Text>
+          </View>
+          {isPresident && (
+            <View className="bg-amber-500/15 px-3 py-1.5 rounded-full">
+              <Text className="text-amber-600 dark:text-amber-400 font-pmedium text-xs">President</Text>
+            </View>
+          )}
+          {canOrganize && !isPresident && user?.role === 'student' && (
+            <View className="bg-success/15 px-3 py-1.5 rounded-full">
+              <Text className="text-success font-pmedium text-xs">Club staff</Text>
+            </View>
+          )}
+          {memberships.filter((m) => m.membership.status === 'active').map((m) => (
+            <View key={m.membership.id} className="bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full">
+              <Text className="text-textSecondary dark:text-gray-300 font-pmedium text-xs">
+                {m.club.name} • {m.membership.role}
+              </Text>
+            </View>
+          ))}
+        </View>
         
         <View className="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 mb-6">
           <View className="mb-4">

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq, and, desc, count, ilike, or } from 'drizzle-orm';
+import { eq, and, desc, count, ilike, inArray } from 'drizzle-orm';
 import {
   db,
   clubs,
@@ -295,11 +295,13 @@ clubsRouter.patch(
   })
 );
 
-// GET /clubs/my-memberships (Get caller's clubs)
+// GET /clubs/my-memberships (Get caller's clubs; ?includePending=true adds
+// pending verification requests so students can track them)
 clubsRouter.get(
   '/my-memberships',
   requireAuth,
   asyncHandler(async (req, res) => {
+    const includePending = (req.query.includePending as string) === 'true';
     const rows = await db
       .select({
         membership: clubMemberships,
@@ -310,10 +312,15 @@ clubsRouter.get(
       .innerJoin(clubs, eq(clubs.id, clubMemberships.clubId))
       .leftJoin(clubBranding, eq(clubBranding.clubId, clubs.id))
       .where(
-        and(
-          eq(clubMemberships.accountId, req.auth!.sub),
-          eq(clubMemberships.status, 'active')
-        )
+        includePending
+          ? and(
+              eq(clubMemberships.accountId, req.auth!.sub),
+              inArray(clubMemberships.status, ['active', 'pending'])
+            )
+          : and(
+              eq(clubMemberships.accountId, req.auth!.sub),
+              eq(clubMemberships.status, 'active')
+            )
       );
 
     res.json(rows);
@@ -361,12 +368,14 @@ clubsRouter.patch(
   })
 );
 
-// GET /clubs/:id/members (List club members)
+// GET /clubs/:id/members (List club members; ?status=pending shows the
+// verification queue for owners/admins)
 clubsRouter.get(
   '/:id/members',
   requireAuth,
   requireClubMember('id'),
   asyncHandler(async (req, res) => {
+    const status = (req.query.status as string) || undefined;
     const rows = await db
       .select({
         membershipId: clubMemberships.id,
@@ -380,10 +389,179 @@ clubsRouter.get(
       })
       .from(clubMemberships)
       .leftJoin(students, eq(students.id, clubMemberships.accountId))
-      .where(eq(clubMemberships.clubId, req.params.id))
+      .where(
+        status
+          ? and(eq(clubMemberships.clubId, req.params.id), eq(clubMemberships.status, status as any))
+          : eq(clubMemberships.clubId, req.params.id)
+      )
       .orderBy(clubMemberships.createdAt);
 
     res.json(rows);
+  })
+);
+
+// POST /clubs/:id/join (Student requests membership — starts as pending
+// until a club owner/admin verifies. Idempotent: re-requesting while pending
+// returns the existing request; a rejected/removed user may request again.)
+clubsRouter.post(
+  '/:id/join',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [club] = await db.select().from(clubs).where(eq(clubs.id, req.params.id));
+    if (!club) throw notFound('Club not found');
+    if (club.status !== 'active') throw forbidden('This club is not accepting members right now');
+
+    const [existing] = await db
+      .select()
+      .from(clubMemberships)
+      .where(
+        and(
+          eq(clubMemberships.clubId, req.params.id),
+          eq(clubMemberships.accountId, req.auth!.sub)
+        )
+      );
+
+    if (existing) {
+      if (existing.status === 'active') throw conflict('You are already a member of this club');
+      if (existing.status === 'pending') return res.json(existing);
+      // Rejected/removed → back to the verification queue.
+      const [reopened] = await db
+        .update(clubMemberships)
+        .set({ status: 'pending', role: 'member', updatedAt: new Date() })
+        .where(eq(clubMemberships.id, existing.id))
+        .returning();
+      return res.json(reopened);
+    }
+
+    const [created] = await db
+      .insert(clubMemberships)
+      .values({
+        clubId: req.params.id,
+        accountId: req.auth!.sub,
+        role: 'member',
+        status: 'pending',
+      })
+      .returning();
+    res.status(201).json(created);
+  })
+);
+
+const moderateMemberSchema = z.object({
+  status: z.enum(['active', 'rejected', 'removed']),
+  role: z.enum(['admin', 'event_manager', 'scanner', 'member']).optional(),
+});
+
+// PATCH /clubs/:id/members/:membershipId (Owner/admin verifies, rejects, or
+// removes a member; optionally sets their role on approval)
+clubsRouter.patch(
+  '/:id/members/:membershipId',
+  requireAuth,
+  requireClubMember('id'),
+  requirePermission('club.manage_members', 'id'),
+  asyncHandler(async (req, res) => {
+    const data = parseBody(moderateMemberSchema, req);
+    const [existing] = await db
+      .select()
+      .from(clubMemberships)
+      .where(
+        and(
+          eq(clubMemberships.id, req.params.membershipId),
+          eq(clubMemberships.clubId, req.params.id)
+        )
+      );
+    if (!existing) throw notFound('Membership not found');
+
+    // Never strand a club: the last active owner can't be removed/rejected.
+    if (existing.role === 'owner' && data.status !== 'active') {
+      const owners = await db
+        .select({ id: clubMemberships.id })
+        .from(clubMemberships)
+        .where(
+          and(
+            eq(clubMemberships.clubId, req.params.id),
+            eq(clubMemberships.role, 'owner'),
+            eq(clubMemberships.status, 'active')
+          )
+        );
+      if (owners.length <= 1 && owners[0]?.id === existing.id) {
+        throw badRequest('Cannot remove the last active owner. Transfer ownership first.');
+      }
+    }
+
+    const [updated] = await db
+      .update(clubMemberships)
+      .set({
+        status: data.status,
+        ...(data.role ? { role: data.role } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(clubMemberships.id, existing.id))
+      .returning();
+    res.json(updated);
+  })
+);
+
+// DELETE /clubs/:id/members/:membershipId (Leave the club yourself, or be
+// removed by someone with manage_members — same last-owner guard)
+clubsRouter.delete(
+  '/:id/members/:membershipId',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [existing] = await db
+      .select()
+      .from(clubMemberships)
+      .where(
+        and(
+          eq(clubMemberships.id, req.params.membershipId),
+          eq(clubMemberships.clubId, req.params.id)
+        )
+      );
+    if (!existing) throw notFound('Membership not found');
+
+    const isSelf = existing.accountId === req.auth!.sub;
+    if (!isSelf) {
+      // Removal by others needs the permission (member check inline to keep
+      // the route usable for non-member self-leavers too).
+      const [row] = await db
+        .select({ role: clubMemberships.role })
+        .from(clubMemberships)
+        .where(
+          and(
+            eq(clubMemberships.accountId, req.auth!.sub),
+            eq(clubMemberships.clubId, req.params.id),
+            eq(clubMemberships.status, 'active')
+          )
+        );
+      const permissions: Record<string, string[]> = {
+        owner: ['club.manage_members'],
+        admin: ['club.manage_members'],
+        event_manager: [],
+        scanner: [],
+        member: [],
+      };
+      if (!row || !(permissions[row.role] ?? []).includes('club.manage_members')) {
+        throw forbidden('Only club managers can remove other members');
+      }
+    }
+
+    if (existing.role === 'owner' && existing.status === 'active') {
+      const owners = await db
+        .select({ id: clubMemberships.id })
+        .from(clubMemberships)
+        .where(
+          and(
+            eq(clubMemberships.clubId, req.params.id),
+            eq(clubMemberships.role, 'owner'),
+            eq(clubMemberships.status, 'active')
+          )
+        );
+      if (owners.length <= 1 && owners[0]?.id === existing.id) {
+        throw badRequest('Cannot remove the last active owner. Transfer ownership first.');
+      }
+    }
+
+    await db.delete(clubMemberships).where(eq(clubMemberships.id, existing.id));
+    res.json({ success: true });
   })
 );
 

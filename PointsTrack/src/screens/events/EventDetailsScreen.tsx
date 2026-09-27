@@ -6,7 +6,7 @@ import { AppNavigationProp, AppStackParamList } from '../../navigation/types';
 
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { api, newIdempotencyKey } from '../../lib/api';
+import { api, newIdempotencyKey, setAttendeeStatus } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import useUserData from '../../hooks/useUserData';
 
@@ -46,6 +46,7 @@ const EventDetailsScreen = () => {
   const [attendeeSummary, setAttendeeSummary] = useState<{
     total: number; checkedIn: number; pending: number; waitlisted: number;
   } | null>(null);
+  const [processingAttendee, setProcessingAttendee] = useState<string | null>(null);
   useEffect(() => {
     if (!isOwner) return;
     api
@@ -63,6 +64,38 @@ const EventDetailsScreen = () => {
   const checkedInCount = attendeeSummary?.checkedIn ?? eventAttendees.filter((a) => a.status === 'checked-in').length;
   const waitlistedCount = attendeeSummary?.waitlisted ?? eventAttendees.filter((a) => a.status === 'waitlisted').length;
   const registeredCount = attendeeSummary?.total ?? eventAttendees.length;
+
+  const refreshAttendeeSummary = async () => {
+    try {
+      setAttendeeSummary(
+        await api.get<{ total: number; checkedIn: number; pending: number; waitlisted: number }>(
+          `/attendees/summary?eventId=${event.id}`
+        )
+      );
+    } catch {}
+  };
+
+  // Owner approves/rejects a registration in place (same API as the web
+  // dashboard). Rejecting may promote a waitlisted student server-side, so
+  // the summary is re-fetched after every action.
+  const moderateAttendee = async (attendeeId: string, status: 'checked-in' | 'rejected') => {
+    setProcessingAttendee(attendeeId);
+    try {
+      await setAttendeeStatus(attendeeId, status, status === 'checked-in' ? 'High' : 'Low');
+      setEventAttendees((prev) =>
+        prev.map((a) =>
+          a.id === attendeeId
+            ? { ...a, status, checkInTimestamp: status === 'checked-in' ? new Date().toISOString() : a.checkInTimestamp }
+            : a
+        )
+      );
+      await refreshAttendeeSummary();
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Could not update attendee.');
+    } finally {
+      setProcessingAttendee(null);
+    }
+  };
 
   useEffect(() => {
     // Check if the student already applied to this event.
@@ -306,19 +339,42 @@ const EventDetailsScreen = () => {
                   <Text className="text-textSecondary dark:text-gray-400 font-pmedium">No one has registered yet.</Text>
                 </View>
               ) : (
-                eventAttendees.map((a) => (
-                  <View key={a.id} className="flex-row items-center justify-between bg-white dark:bg-darkCard p-3 rounded-xl mb-2 border border-gray-100 dark:border-gray-800">
-                    <View className="flex-1 mr-2">
-                      <Text className="text-textPrimary dark:text-white font-psemibold" numberOfLines={1}>{a.name}</Text>
-                      <Text className="text-textSecondary dark:text-gray-400 text-xs" numberOfLines={1}>{a.email}</Text>
+                eventAttendees.map((a) => {
+                  const actionable = a.status === 'pending' || a.status === 'waitlisted';
+                  return (
+                  <View key={a.id} className="bg-white dark:bg-darkCard p-3 rounded-xl mb-2 border border-gray-100 dark:border-gray-800">
+                    <View className="flex-row items-center justify-between">
+                      <View className="flex-1 mr-2">
+                        <Text className="text-textPrimary dark:text-white font-psemibold" numberOfLines={1}>{a.name}</Text>
+                        <Text className="text-textSecondary dark:text-gray-400 text-xs" numberOfLines={1}>{a.email}</Text>
+                      </View>
+                      <View className={`px-2.5 py-1 rounded-full ${a.status === 'checked-in' ? 'bg-success/15' : a.status === 'waitlisted' ? 'bg-orange-500/15' : 'bg-gray-200 dark:bg-gray-700'}`}>
+                        <Text className={`text-xs font-pbold ${a.status === 'checked-in' ? 'text-success' : a.status === 'waitlisted' ? 'text-orange-500' : 'text-textSecondary dark:text-gray-300'}`}>
+                          {a.status === 'checked-in' ? 'Checked in' : a.status === 'waitlisted' ? 'Waitlist' : a.status === 'rejected' ? 'Rejected' : 'Pending'}
+                        </Text>
+                      </View>
                     </View>
-                    <View className={`px-2.5 py-1 rounded-full ${a.status === 'checked-in' ? 'bg-success/15' : a.status === 'waitlisted' ? 'bg-orange-500/15' : 'bg-gray-200 dark:bg-gray-700'}`}>
-                      <Text className={`text-xs font-pbold ${a.status === 'checked-in' ? 'text-success' : a.status === 'waitlisted' ? 'text-orange-500' : 'text-textSecondary dark:text-gray-300'}`}>
-                        {a.status === 'checked-in' ? 'Checked in' : a.status === 'waitlisted' ? 'Waitlist' : 'Pending'}
-                      </Text>
-                    </View>
+                    {actionable && (
+                      <View className="flex-row gap-2 mt-2">
+                        <TouchableOpacity
+                          onPress={() => moderateAttendee(a.id, 'checked-in')}
+                          disabled={processingAttendee === a.id}
+                          className="flex-1 py-2 rounded-xl bg-success/15 items-center"
+                        >
+                          <Text className="text-success font-pbold text-sm">Approve +{event.points ?? ''}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => moderateAttendee(a.id, 'rejected')}
+                          disabled={processingAttendee === a.id}
+                          className="flex-1 py-2 rounded-xl bg-red-500/10 items-center"
+                        >
+                          <Text className="text-red-500 font-pbold text-sm">Reject</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
-                ))
+                  );
+                })
               )}
               <Text className="text-xs text-textSecondary dark:text-gray-500 font-pregular mt-2 mb-2">
                 Edit details and approve registrations on the web dashboard.
