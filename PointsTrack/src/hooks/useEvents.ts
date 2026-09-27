@@ -26,7 +26,9 @@ const useEvents = () => {
 
     const fetchEvents = useCallback(async () => {
         try {
-            const rows = await api.get<any[]>('/points');
+            // Bounded at the server max: totals come from /points/summary,
+            // this list drives recency displays only.
+            const rows = await api.get<any[]>('/points?limit=1000');
             setEvents(rows.map((r) => ({ ...r, userId: r.studentId })));
         } catch (error) {
             console.error('Error fetching events:', error);

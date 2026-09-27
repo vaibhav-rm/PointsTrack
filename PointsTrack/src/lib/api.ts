@@ -75,6 +75,25 @@ async function refreshAccessToken(): Promise<string | null> {
   return data.accessToken;
 }
 
+// Single-flight refresh: parallel 401s (e.g. a screen firing 2-3 requests at
+// once) must share ONE /auth/refresh call. The server rotates refresh tokens,
+// so N parallel refreshes would revoke each other and log the user out.
+let refreshPromise: Promise<string | null> | null = null;
+function singleFlightRefresh(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+// Unique key per user action; sent as Idempotency-Key so network retries
+// replay the original response instead of duplicating the write.
+export function newIdempotencyKey(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 async function request<T>(
   path: string,
   init: RequestInit & { isUpload?: boolean } = {},
@@ -92,7 +111,7 @@ async function request<T>(
   });
 
   if (res.status === 401 && !isRetry && refreshToken) {
-    const refreshed = await refreshAccessToken();
+    const refreshed = await singleFlightRefresh();
     if (refreshed) return request<T>(path, init, true);
   }
 
@@ -103,8 +122,12 @@ async function request<T>(
 
 export const api = {
   get: <T>(path: string) => request<T>(path, { method: 'GET' }),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+  post: <T>(path: string, body?: unknown, opts?: { idempotencyKey?: string }) =>
+    request<T>(path, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+      headers: opts?.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : undefined,
+    }),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
@@ -175,6 +198,7 @@ export async function registerStudent(payload: {
   name: string;
   phone?: string;
   college: string;
+  collegeId?: string;
   collegeCode?: string;
   region?: string;
   usn: string;

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Users, Briefcase, Sparkles, LogOut } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { api, logout, type OrganizerProfile } from '@/lib/api'
+import { api, logout } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { COLLEGES } from '@/lib/colleges'
 
@@ -28,11 +28,14 @@ export default function CreateClubPage() {
     }
     setSubmitting(true)
     try {
-      await api.patch<OrganizerProfile>('/profile/organizer', {
-        clubName: form.clubName,
+      // Onboard creates the full bundle atomically (legacy profile + ACTIVE
+      // club + owner membership + branding). Creating only the legacy row
+      // would leave event creation failing with 403 under requireClub.
+      await api.post('/clubs/onboard', {
+        name: form.clubName,
         college: form.college,
+        description: form.bio || undefined,
         fullName: form.fullName || undefined,
-        bio: form.bio || undefined,
       })
       await refreshProfile()
       toast.success('Club created! 🎉')

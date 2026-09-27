@@ -51,8 +51,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
       try {
         const me = await fetchMe();
-        setUser(me.user);
-        setProfile(me.profile);
+        // This app is student-only: organizers/admins must use the web
+        // dashboard. Otherwise every student-gated call 403s on a null profile.
+        if (me.user.role !== 'student') {
+          await clearTokens();
+          setUser(null);
+          setProfile(null);
+        } else {
+          setUser(me.user);
+          setProfile(me.profile);
+        }
       } catch {
         await clearTokens();
       } finally {
@@ -63,6 +71,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const login = useCallback(async (email: string, password: string) => {
     const data = await apiLogin(email, password);
+    if (data.user.role !== 'student') {
+      await clearTokens();
+      throw new Error('This app is for students. Organizers, please use the web dashboard.');
+    }
     setUser(data.user);
     setProfile(data.profile);
   }, []);

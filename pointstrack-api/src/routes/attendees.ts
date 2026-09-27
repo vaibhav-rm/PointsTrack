@@ -25,6 +25,20 @@ const ACTIVE_STATUSES = ['pending', 'checked-in'] as const;
 // Helpers (transactional so they're correct under concurrent requests)
 // ---------------------------------------------------------------------------
 
+// Count attendees holding an active (capacity-consuming) spot for an event.
+// Uses COUNT(*) — never loads row ids into memory — so full events stay cheap.
+// `tx` is a drizzle transaction client (typed loosely to avoid coupling).
+async function countActiveSpots(
+  tx: any,
+  eventId: string
+): Promise<number> {
+  const [{ total }] = await tx
+    .select({ total: sql<number>`(count(*))::int` })
+    .from(attendees)
+    .where(and(eq(attendees.eventId, eventId), inArray(attendees.status, [...ACTIVE_STATUSES])));
+  return total;
+}
+
 // Promote the longest-waiting waitlisted student when a spot frees up. Locks the
 // event row first (consistent lock order with apply) to serialise capacity math.
 async function promoteFromWaitlist(eventId: string) {
@@ -36,11 +50,8 @@ async function promoteFromWaitlist(eventId: string) {
       .for('update');
     if (!event || !event.capacity || event.capacity <= 0) return null;
 
-    const active = await tx
-      .select({ id: attendees.id })
-      .from(attendees)
-      .where(and(eq(attendees.eventId, eventId), inArray(attendees.status, [...ACTIVE_STATUSES])));
-    if (active.length >= event.capacity) return null; // still full
+    const activeCount = await countActiveSpots(tx, eventId);
+    if (activeCount >= event.capacity) return null; // still full
 
     const [next] = await tx
       .select()
@@ -86,6 +97,21 @@ async function applyStatusChange(
 
     const wasCheckedIn = attendee.status === 'checked-in';
     const heldActiveSpot = attendee.status === 'pending' || attendee.status === 'checked-in';
+
+    // Capacity gate: a non-spot-holder (waitlisted/rejected walk-in) may only
+    // transition to checked-in when a free slot exists. The event row is
+    // locked first so concurrent scans serialise on the count.
+    if (status === 'checked-in' && !heldActiveSpot) {
+      const [event] = await tx
+        .select({ capacity: eventsCatalog.capacity })
+        .from(eventsCatalog)
+        .where(eq(eventsCatalog.id, attendee.eventId))
+        .for('update');
+      if (event?.capacity && event.capacity > 0) {
+        const activeCount = await countActiveSpots(tx, attendee.eventId);
+        if (activeCount >= event.capacity) throw conflict('Event is at capacity');
+      }
+    }
 
     const [updated] = await tx
       .update(attendees)
@@ -198,11 +224,8 @@ attendeesRouter.post(
       // capacity 0 = unlimited; otherwise full active spots → waitlist.
       let status: 'pending' | 'waitlisted' = 'pending';
       if (event.capacity && event.capacity > 0) {
-        const active = await tx
-          .select({ id: attendees.id })
-          .from(attendees)
-          .where(and(eq(attendees.eventId, eventId), inArray(attendees.status, [...ACTIVE_STATUSES])));
-        if (active.length >= event.capacity) status = 'waitlisted';
+        const activeCount = await countActiveSpots(tx, eventId);
+        if (activeCount >= event.capacity) status = 'waitlisted';
       }
 
       const [row] = await tx
@@ -266,26 +289,40 @@ attendeesRouter.post(
       return res.json({ attendee, alreadyCheckedIn: true, studentName: attendee.name });
     }
 
-    // Walk-up who never applied — create on the spot. onConflictDoNothing absorbs
-    // a concurrent create (two devices scanning the same student); we re-read after.
+    // Walk-up who never applied — create on the spot. Capacity is enforced
+    // here (inside an event-locked transaction) because a fresh 'pending' row
+    // counts as a spot-holder downstream: without this gate, walk-ups would
+    // overbook full events. onConflictDoNothing absorbs a concurrent create
+    // (two devices scanning the same student); we re-read after.
     if (!attendee) {
-      await db
-        .insert(attendees)
-        .values({
-          eventId,
-          studentId,
-          organizerId: event.organizerId,
-          name: student.name,
-          email: student.email,
-          eventTitle: event.title,
-          status: 'pending',
-          engagement: 'Pending',
-          pointsAwarded: event.points,
-          checkInTimestamp: null,
-        })
-        .onConflictDoNothing({
-          target: [attendees.eventId, attendees.studentId],
-        });
+      await db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select({ capacity: eventsCatalog.capacity })
+          .from(eventsCatalog)
+          .where(eq(eventsCatalog.id, eventId))
+          .for('update');
+        if (locked?.capacity && locked.capacity > 0) {
+          const activeCount = await countActiveSpots(tx, eventId);
+          if (activeCount >= locked.capacity) throw conflict('Event is at capacity');
+        }
+        await tx
+          .insert(attendees)
+          .values({
+            eventId,
+            studentId,
+            organizerId: event.organizerId,
+            name: student.name,
+            email: student.email,
+            eventTitle: event.title,
+            status: 'pending',
+            engagement: 'Pending',
+            pointsAwarded: event.points,
+            checkInTimestamp: null,
+          })
+          .onConflictDoNothing({
+            target: [attendees.eventId, attendees.studentId],
+          });
+      });
       [attendee] = await db
         .select()
         .from(attendees)
@@ -396,12 +433,19 @@ attendeesRouter.get(
     const byEngagement: Record<string, number> = {};
     for (const r of engagementRows) byEngagement[r.engagement] = r.total;
     const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
+    // Sum of the per-attendee pointsAwarded snapshots for checked-in rows —
+    // the true awarded total even if event.points changed afterwards.
+    const [awardedRow] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${attendees.pointsAwarded}), 0)` })
+      .from(attendees)
+      .where(and(base, eq(attendees.status, 'checked-in' as any)));
     res.json({
       total,
       checkedIn: byStatus['checked-in'] ?? 0,
       pending: byStatus['pending'] ?? 0,
       rejected: byStatus['rejected'] ?? 0,
       waitlisted: byStatus['waitlisted'] ?? 0,
+      pointsAwarded: Number(awardedRow?.total ?? 0),
       byEngagement,
     });
   })

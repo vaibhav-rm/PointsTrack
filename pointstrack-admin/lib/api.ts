@@ -71,6 +71,19 @@ async function refreshAccessToken(): Promise<string | null> {
   return data.accessToken
 }
 
+// Single-flight refresh: parallel 401s (dashboard/analytics fire several
+// requests at once) share ONE /auth/refresh call. The server rotates refresh
+// tokens, so parallel refreshes would revoke each other and log the user out.
+let refreshPromise: Promise<string | null> | null = null
+function singleFlightRefresh(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null
+    })
+  }
+  return refreshPromise
+}
+
 async function request<T>(
   path: string,
   init: RequestInit & { isUpload?: boolean } = {},
@@ -89,7 +102,7 @@ async function request<T>(
   })
 
   if (res.status === 401 && !isRetry && getRefreshToken()) {
-    const refreshed = await refreshAccessToken()
+    const refreshed = await singleFlightRefresh()
     if (refreshed) return request<T>(path, init, true)
   }
 
@@ -118,7 +131,7 @@ export const api = {
       },
     })
     if (res.status === 401 && getRefreshToken()) {
-      const refreshed = await refreshAccessToken()
+      const refreshed = await singleFlightRefresh()
       if (refreshed) return api.getPage<T>(path)
     }
     if (!res.ok) throw new ApiError(res.status, await parseError(res))

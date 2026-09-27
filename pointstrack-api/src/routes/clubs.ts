@@ -11,6 +11,7 @@ import {
   clubAnnouncements,
   colleges,
   accounts,
+  organizers,
   students,
 } from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
@@ -131,6 +132,112 @@ clubsRouter.post(
     });
 
     res.status(201).json(result);
+  })
+);
+
+// POST /clubs/onboard (First-club onboarding for a logged-in account that has
+// none yet — the same bundle POST /auth/register/organizer creates: legacy
+// profile + ACTIVE canonical club + owner membership + branding, atomically.
+// This is what the admin "Create your club" page must call: creating only the
+// legacy row leaves requireClub failing with 403 on event creation.
+// Returns 409 if the caller already owns an active club.)
+const onboardClubSchema = z.object({
+  name: z.string().min(1),
+  collegeId: z.string().uuid().optional(),
+  college: z.string().min(1).optional(),
+  description: z.string().optional(),
+  fullName: z.string().optional(),
+});
+
+clubsRouter.post(
+  '/onboard',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const data = parseBody(onboardClubSchema, req);
+    const accountId = req.auth!.sub;
+
+    const [hasActive] = await db
+      .select({ id: clubMemberships.id })
+      .from(clubMemberships)
+      .innerJoin(clubs, eq(clubs.id, clubMemberships.clubId))
+      .where(
+        and(
+          eq(clubMemberships.accountId, accountId),
+          eq(clubMemberships.status, 'active'),
+          eq(clubs.status, 'active')
+        )
+      );
+    if (hasActive) throw conflict('You already have an active club.');
+
+    let collegeName = data.college || '';
+    let collegeId = data.collegeId ?? null;
+    if (collegeId) {
+      const [col] = await db.select().from(colleges).where(eq(colleges.id, collegeId));
+      if (col) collegeName = col.name;
+      else collegeId = null;
+    }
+    if (!collegeId && collegeName) {
+      const [named] = await db.select({ id: colleges.id }).from(colleges).where(eq(colleges.name, collegeName));
+      if (named) collegeId = named.id;
+    }
+    if (!collegeName) throw badRequest('College or collegeId is required');
+
+    const [account] = await db.select().from(accounts).where(eq(accounts.id, accountId));
+    if (!account) throw notFound('Account not found');
+
+    const baseSlug = slugify(data.name);
+    const slug = `${baseSlug}-${accountId.slice(0, 6)}`;
+
+    const result = await db.transaction(async (tx) => {
+      // Legacy profile: insert or refresh (the create-club form may have
+      // already created one via PATCH /profile/organizer).
+      const [legacy] = await tx
+        .insert(organizers)
+        .values({
+          id: accountId,
+          email: account.email,
+          fullName: data.fullName,
+          clubName: data.name,
+          college: collegeName,
+          bio: data.description,
+        })
+        .onConflictDoUpdate({
+          target: organizers.id,
+          set: { fullName: data.fullName, clubName: data.name, college: collegeName, bio: data.description },
+        })
+        .returning();
+
+      const [club] = await tx
+        .insert(clubs)
+        .values({
+          name: data.name,
+          slug,
+          collegeId,
+          college: collegeName,
+          description: data.description,
+          createdBy: accountId,
+          status: 'active',
+        })
+        .returning();
+
+      const [membership] = await tx
+        .insert(clubMemberships)
+        .values({ accountId, clubId: club.id, role: 'owner', status: 'active' })
+        .returning();
+
+      const [branding] = await tx
+        .insert(clubBranding)
+        .values({ clubId: club.id, accentColor: '#06B6D4' })
+        .returning();
+
+      return { legacy, club, membership, branding };
+    });
+
+    res.status(201).json({
+      club: result.legacy,
+      clubs: [{ ...result.club, branding: result.branding, role: 'owner' }],
+      memberships: [result.membership],
+    });
   })
 );
 
@@ -293,7 +400,9 @@ clubsRouter.post(
   requirePermission('club.manage_members', 'id'),
   asyncHandler(async (req, res) => {
     const { email, role } = parseBody(inviteMemberSchema, req);
-    const [targetAccount] = await db.select().from(accounts).where(eq(accounts.email, email));
+    // Accounts are stored lowercased — normalize so 'Member@X.edu' resolves.
+    const normalizedEmail = email.trim().toLowerCase();
+    const [targetAccount] = await db.select().from(accounts).where(eq(accounts.email, normalizedEmail));
     if (!targetAccount) throw notFound('No account found with that email address');
 
     const [existing] = await db

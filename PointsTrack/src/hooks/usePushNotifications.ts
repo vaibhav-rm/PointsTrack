@@ -19,9 +19,11 @@ export function usePushNotifications(user: AuthUser | null) {
     const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
     const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
 
+    // Listeners attach regardless of auth state; the OS permission prompt and
+    // token fetch only run once logged in, so logged-out users are never
+    // nagged. Token sync retries on every app foreground while logged in
+    // (server is the source of truth; a failed sync must not silently stick).
     useEffect(() => {
-        registerForPushNotificationsAsync().then(token => setExpoPushToken(token ?? ''));
-
         notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
             setNotification(notification);
         });
@@ -37,17 +39,38 @@ export function usePushNotifications(user: AuthUser | null) {
     }, []);
 
     useEffect(() => {
+        if (!user?.id) return;
+        let cancelled = false;
+        registerForPushNotificationsAsync().then(token => {
+            if (!cancelled) setExpoPushToken(token ?? '');
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [user?.id]);
+
+    useEffect(() => {
         if (user?.id && expoPushToken) {
-            // Save the push token against the student's profile via the API.
+            // Save the push token against the student's profile via the API,
+            // retrying a few times — a single fire-and-forget failure would
+            // silently lose notifications until reinstall.
+            let cancelled = false;
             const updatePushToken = async () => {
-                try {
-                    await api.put('/profile/student/push-token', { pushToken: expoPushToken });
-                    console.log("Push token synced successfully");
-                } catch (error) {
-                    console.error("Failed to sync push token", error);
+                for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+                    try {
+                        await api.put('/profile/student/push-token', { pushToken: expoPushToken });
+                        console.log("Push token synced successfully");
+                        return;
+                    } catch (error) {
+                        console.error(`Failed to sync push token (attempt ${attempt + 1})`, error);
+                        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+                    }
                 }
             };
             updatePushToken();
+            return () => {
+                cancelled = true;
+            };
         }
     }, [user, expoPushToken]);
 

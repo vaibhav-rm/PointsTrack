@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -9,7 +9,7 @@ import {
   ArrowLeft, ArrowRight, Check, Eye, EyeOff,
 } from 'lucide-react'
 
-import { registerOrganizer } from '@/lib/api'
+import { registerOrganizer, fetchColleges, type College } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { COLLEGES } from '@/lib/colleges'
 
@@ -38,6 +38,13 @@ export default function RegisterPage() {
     password: '',
     confirmPassword: '',
   })
+
+  // Server directory (carries canonical ids); static list is the fallback.
+  const [serverColleges, setServerColleges] = useState<College[]>([])
+  useEffect(() => {
+    fetchColleges().then(setServerColleges).catch(() => {})
+  }, [])
+  const collegeOptions = serverColleges.length > 0 ? serverColleges.map((c) => c.name) : COLLEGES.map((c) => c.name)
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -83,12 +90,16 @@ export default function RegisterPage() {
 
     setIsLoading(true)
     try {
+      // collegeId is the indexed tenancy key — resolve it from the server
+      // directory so registration doesn't depend on exact-name matching.
+      const collegeId = serverColleges.find((c) => c.name === formData.college)?.id
       await registerOrganizer({
         email: formData.email,
         password: formData.password,
         fullName: formData.fullName,
         clubName: formData.companyName,
         college: formData.college,
+        collegeId,
         bio: formData.bio,
         establishedDate: formData.establishedDate,
         coreTeam: formData.coreTeam,
@@ -303,9 +314,9 @@ export default function RegisterPage() {
                       className={`${inputClasses} appearance-none`}
                     >
                       <option value="" disabled>Select your college</option>
-                      {COLLEGES.map((college, index) => (
-                        <option key={`${college.code}-${index}`} value={college.name}>
-                          {college.name}
+                      {collegeOptions.map((name, index) => (
+                        <option key={`${name}-${index}`} value={name}>
+                          {name}
                         </option>
                       ))}
                     </select>

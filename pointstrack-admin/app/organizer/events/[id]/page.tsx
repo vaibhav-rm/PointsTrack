@@ -22,6 +22,7 @@ interface EventSummary {
   pending: number
   rejected: number
   waitlisted: number
+  pointsAwarded: number
 }
 
 export default function EventDetailPage() {
@@ -47,6 +48,12 @@ export default function EventDetailPage() {
     }, 400)
     return () => clearTimeout(t)
   }, [searchTerm])
+
+  // Selection is page-scoped: changing page or filter resets it so bulk
+  // actions can't mix ids from different result sets.
+  useEffect(() => {
+    setSelected(new Set())
+  }, [page, debouncedSearch])
 
   const loadAttendees = useCallback(async () => {
     if (!user || !id) return
@@ -99,6 +106,25 @@ export default function EventDetailPage() {
     }
   }, [user, id])
 
+  // Reload the current page (a reject can promote a waitlisted student
+  // server-side, which the optimistic row alone would never show).
+  const reloadPage = useCallback(async () => {
+    if (!user || !id) return
+    try {
+      const params = new URLSearchParams({
+        eventId: id as string,
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      })
+      if (debouncedSearch) params.set('search', debouncedSearch)
+      const { data, total } = await api.getPage<any[]>(`/attendees?${params}`)
+      setAttendees(data)
+      setTotal(total ?? data.length)
+    } catch (error) {
+      console.error(error)
+    }
+  }, [user, id, page, debouncedSearch])
+
   const handleStatusUpdate = async (attendeeId: string, newStatus: string, newEngagement: string) => {
     setProcessingId(attendeeId)
     try {
@@ -110,7 +136,17 @@ export default function EventDetailPage() {
             : a
         )
       )
+      // No longer actionable — drop from selection so the next bulk can't
+      // resubmit it.
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.delete(attendeeId)
+        return next
+      })
       refreshSummary()
+      // A rejection may promote a waitlisted student server-side: reload the
+      // page so the roster reflects it.
+      if (newStatus === 'rejected') reloadPage()
       toast.success(newStatus === 'checked-in' ? 'Points allotted successfully' : 'Registration rejected')
     } catch (error) {
       console.error(error)
@@ -125,17 +161,40 @@ export default function EventDetailPage() {
     if (ids.length === 0) return
     setBulkProcessing(true)
     try {
-      await api.patch('/attendees/bulk', { ids, status: newStatus, engagement: newStatus === 'checked-in' ? 'High' : 'Low' })
+      // The server caps batches at 500 ids — chunk larger selections so the
+      // whole operation doesn't fail, and report the server's true counts.
+      let updatedCount = 0
+      let skippedCount = 0
+      const processedIds: string[] = []
+      for (let i = 0; i < ids.length; i += 500) {
+        const chunk = ids.slice(i, i + 500)
+        const res = await api.patch<{ updated: number; skipped: number; attendees: any[] }>(
+          '/attendees/bulk',
+          { ids: chunk, status: newStatus, engagement: newStatus === 'checked-in' ? 'High' : 'Low' }
+        )
+        updatedCount += res.updated
+        skippedCount += res.skipped
+        processedIds.push(...res.attendees.map((a: any) => a.id))
+      }
       const ts = new Date().toISOString()
       setAttendees((prev) =>
         prev.map((a) =>
-          selected.has(a.id)
+          processedIds.includes(a.id)
             ? { ...a, status: newStatus, checkInTimestamp: newStatus === 'checked-in' ? ts : a.checkInTimestamp }
             : a
         )
       )
-      toast.success(`${ids.length} attendee${ids.length > 1 ? 's' : ''} ${newStatus === 'checked-in' ? 'checked in' : 'rejected'}`)
-      setSelected(new Set())
+      // Processed rows are no longer actionable — drop them from selection so
+      // the next bulk can't resubmit them.
+      setSelected((prev) => {
+        const next = new Set(prev)
+        processedIds.forEach((id) => next.delete(id))
+        return next
+      })
+      toast.success(
+        `${updatedCount} attendee${updatedCount !== 1 ? 's' : ''} ${newStatus === 'checked-in' ? 'checked in' : 'rejected'}` +
+        (skippedCount > 0 ? ` (${skippedCount} skipped)` : '')
+      )
       refreshSummary()
     } catch (error) {
       console.error(error)
@@ -172,8 +231,9 @@ export default function EventDetailPage() {
       }
       const headers = ['Name', 'Email', 'Status', 'Engagement', 'Points', 'Check-in time']
       const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+      // Per-attendee snapshot: what was actually awarded, not live event.points.
       const rows = all.map((a) =>
-        [a.name, a.email, a.status, a.engagement, a.status === 'checked-in' ? event?.points ?? 0 : 0,
+        [a.name, a.email, a.status, a.engagement, a.status === 'checked-in' ? a.pointsAwarded ?? 0 : 0,
          a.checkInTimestamp ? new Date(a.checkInTimestamp).toLocaleString() : ''].map(esc).join(',')
       )
       const csv = [headers.map(esc).join(','), ...rows].join('\n')
@@ -210,7 +270,11 @@ export default function EventDetailPage() {
   const pending = eventSummary?.pending ?? attendees.filter((a) => a.status === 'pending').length
   const waitlisted = eventSummary?.waitlisted ?? attendees.filter((a) => a.status === 'waitlisted').length
   const registered = eventSummary?.total ?? total
-  const pointsAwarded = checkedIn * (event?.points ?? 0)
+  // Server-summed snapshot total — exact across pages even if event.points
+  // changed after check-in.
+  const pointsAwarded = eventSummary?.pointsAwarded ?? attendees
+    .filter((a) => a.status === 'checked-in')
+    .reduce((sum, a) => sum + (Number(a.pointsAwarded) || 0), 0)
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   if (loading) {

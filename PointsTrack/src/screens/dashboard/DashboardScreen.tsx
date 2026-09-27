@@ -1,12 +1,13 @@
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Linking } from 'react-native';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { AppNavigationProp } from '../../navigation/types';
 import useUserData from '../../hooks/useUserData';
 import useEvents from '../../hooks/useEvents';
 import ProgressRing from '../../components/ProgressRing';
 import Button from '../../components/Button';
+import { api } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
@@ -19,16 +20,39 @@ const DashboardScreen = () => {
   const { userData, loading: userLoading } = useUserData();
   const { events, loading: eventsLoading, refetch } = useEvents();
 
-  const totalPoints = useMemo(() => {
+  // Authoritative totals from the server SUM — the local ledger page caps at
+  // 500 rows, so client-side sums under-report for power users.
+  const [summary, setSummary] = useState<{ totalPoints: number; requiredPoints: number } | null>(null);
+  const fetchSummary = useCallback(async () => {
+    try {
+      const s = await api.get<{ totalPoints: number; requiredPoints: number }>('/points/summary');
+      setSummary(s);
+    } catch {
+      /* fall back to the local sum below */
+    }
+  }, []);
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchSummary();
+    }, [fetchSummary])
+  );
+
+  const localSum = useMemo(() => {
     return events.reduce((acc, event) => acc + (Number(event.points) || 0), 0);
   }, [events]);
 
-  const requiredPoints = userData?.requiredPoints || 100;
+  const totalPoints = summary?.totalPoints ?? localSum;
+
+  const requiredPoints = summary?.requiredPoints ?? userData?.requiredPoints ?? 100;
   const progress = Math.min(totalPoints / requiredPoints, 1);
   const remainingPoints = Math.max(requiredPoints - totalPoints, 0);
 
   const onRefresh = () => {
     refetch();
+    fetchSummary();
   };
 
   const handleLogout = () => {

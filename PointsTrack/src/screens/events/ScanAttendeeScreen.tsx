@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
-import { api } from '../../lib/api';
+import { api, newIdempotencyKey } from '../../lib/api';
 import { AppStackParamList, AppNavigationProp } from '../../navigation/types';
 
 type Result = { kind: 'success' | 'already' | 'error'; message: string } | null;
@@ -31,10 +31,14 @@ const ScanAttendeeScreen = () => {
     }
     lockRef.current = true;
     setProcessing(true);
+    // One key per scan: the server replays instead of double-awarding if the
+    // request is retried (row lock + unique ledger index backstop it anyway).
+    const idempotencyKey = newIdempotencyKey();
     try {
       const res = await api.post<{ alreadyCheckedIn: boolean; studentName: string }>(
         '/attendees/checkin-by-qr',
-        { eventId, studentId: match[0] }
+        { eventId, studentId: match[0] },
+        { idempotencyKey }
       );
       if (res.alreadyCheckedIn) {
         flash({ kind: 'already', message: `${res.studentName} is already checked in.` });

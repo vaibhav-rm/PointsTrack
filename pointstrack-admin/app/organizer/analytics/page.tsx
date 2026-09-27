@@ -33,8 +33,10 @@ export default function AnalyticsPage() {
       if (!user) return;
       try {
         // Aggregates + a bounded event list — never full attendee downloads.
+        // limit=500 is the server max: ranking stays exact for realistic
+        // organizer portfolios (hundreds of events, not thousands).
         const [eventsPage, fetchedSummary, daily] = await Promise.all([
-          api.getPage<any[]>('/events/mine?limit=100'),
+          api.getPage<any[]>('/events/mine?limit=500'),
           api.get<Summary>('/attendees/summary'),
           api.get<DayBucket[]>('/attendees/checkins/daily?days=7'),
         ]);
@@ -82,18 +84,21 @@ export default function AnalyticsPage() {
   };
   const trendData = getAttendanceTrend();
 
-  // Engagement distribution from the server GROUP BY.
+  // Engagement distribution from the server GROUP BY. 'Pending'/'Waitlisted'
+  // are non-responses, not low engagement — bucket them separately.
   const getEngagementStats = () => {
     const byEng = summary?.byEngagement ?? {};
     const total = summary?.total || 1;
     const high = byEng['High'] ?? 0;
     const medium = byEng['Medium'] ?? 0;
-    const low = total - high - medium;
+    const awaiting = (byEng['Pending'] ?? 0) + (byEng['Waitlisted'] ?? 0);
+    const low = Math.max(0, total - high - medium - awaiting);
 
     return [
       { label: 'High', value: Math.round((high / total) * 100), color: 'bg-green-500' },
       { label: 'Medium', value: Math.round((medium / total) * 100), color: 'bg-blue-500' },
       { label: 'Low', value: Math.round((low / total) * 100), color: 'bg-slate-500' },
+      { label: 'Awaiting', value: Math.round((awaiting / total) * 100), color: 'bg-amber-500' },
     ];
   };
   const engagementData = getEngagementStats();

@@ -6,7 +6,7 @@ import { AppNavigationProp, AppStackParamList } from '../../navigation/types';
 
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { api } from '../../lib/api';
+import { api, newIdempotencyKey } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import useUserData from '../../hooks/useUserData';
 
@@ -40,17 +40,29 @@ const EventDetailsScreen = () => {
       .catch(() => {});
   }, [event.id]);
 
-  // Owners get a live attendee list + counts (the "manage" essentials).
+  // Owners get attendee counts + roster (the "manage" essentials). Counts come
+  // from the server GROUP BY so events with 100+ registrations stay exact;
+  // the roster preview is bounded (full management lives on the dashboard).
+  const [attendeeSummary, setAttendeeSummary] = useState<{
+    total: number; checkedIn: number; pending: number; waitlisted: number;
+  } | null>(null);
   useEffect(() => {
     if (!isOwner) return;
     api
-      .get<any[]>(`/attendees?eventId=${event.id}`)
+      .get<{ total: number; checkedIn: number; pending: number; waitlisted: number }>(
+        `/attendees/summary?eventId=${event.id}`
+      )
+      .then(setAttendeeSummary)
+      .catch(() => {});
+    api
+      .get<any[]>(`/attendees?eventId=${event.id}&limit=200`)
       .then(setEventAttendees)
       .catch(() => {});
   }, [isOwner, event.id]);
 
-  const checkedInCount = eventAttendees.filter((a) => a.status === 'checked-in').length;
-  const waitlistedCount = eventAttendees.filter((a) => a.status === 'waitlisted').length;
+  const checkedInCount = attendeeSummary?.checkedIn ?? eventAttendees.filter((a) => a.status === 'checked-in').length;
+  const waitlistedCount = attendeeSummary?.waitlisted ?? eventAttendees.filter((a) => a.status === 'waitlisted').length;
+  const registeredCount = attendeeSummary?.total ?? eventAttendees.length;
 
   useEffect(() => {
     // Check if the student already applied to this event.
@@ -84,7 +96,12 @@ const EventDetailsScreen = () => {
 
     setIsApplying(true);
     try {
-      const attendee = await api.post<{ status: string }>('/attendees', { eventId: event.id });
+      // One key per tap: a retried request replays instead of double-applying.
+      const attendee = await api.post<{ status: string }>(
+        '/attendees',
+        { eventId: event.id },
+        { idempotencyKey: newIdempotencyKey() }
+      );
 
       setHasApplied(true);
       setApplicationStatus(attendee.status);
@@ -270,7 +287,7 @@ const EventDetailsScreen = () => {
             <View className="mt-2">
               <View className="flex-row gap-3 mb-4">
                 <View className="flex-1 bg-gray-50 dark:bg-darkCard p-3 rounded-2xl border border-gray-100 dark:border-gray-800">
-                  <Text className="text-2xl font-pbold text-textPrimary dark:text-white">{eventAttendees.length}</Text>
+                  <Text className="text-2xl font-pbold text-textPrimary dark:text-white">{registeredCount}</Text>
                   <Text className="text-xs text-textSecondary dark:text-gray-400 font-pmedium">Registered</Text>
                 </View>
                 <View className="flex-1 bg-gray-50 dark:bg-darkCard p-3 rounded-2xl border border-gray-100 dark:border-gray-800">

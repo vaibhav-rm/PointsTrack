@@ -77,13 +77,16 @@ const RegisterScreen = () => {
     setLoading(true);
     try {
       // Create the account + student profile in one call. The API derives
-      // requiredPoints from the lateral-entry flag.
+      // requiredPoints from the lateral-entry flag. collegeId (present when
+      // the college was picked from the server directory) is the indexed
+      // tenancy key — without it the server falls back to exact-name match.
       await register({
         name,
         email,
         password,
         phone,
         college: selectedCollege.name,
+        collegeId: (selectedCollege as { id?: string }).id,
         collegeCode: selectedCollege.code,
         region: selectedCollege.region,
         usn: usn.toUpperCase(),
@@ -229,9 +232,9 @@ const RegisterScreen = () => {
                onChangeText={setCollegeSearch} 
              />
 
-             <FlatList
-               data={filteredColleges}
-               keyExtractor={(item) => item.code}
+              <FlatList
+                data={filteredColleges}
+                keyExtractor={(item) => `${item.code}:${item.name}`}
                renderItem={({ item }) => (
                  <TouchableOpacity 
                   className="py-4 border-b border-gray-100 dark:border-gray-800"

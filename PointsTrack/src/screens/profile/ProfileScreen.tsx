@@ -19,7 +19,7 @@ const ProfileScreen = () => {
     if (!userData) return;
     setExporting(true);
     try {
-      const rows = await api.get<any[]>('/points');
+      const rows = await api.get<any[]>('/points?limit=1000');
       await generateTranscript(userData as any, rows);
     } catch (error: any) {
       console.error('Transcript error', error);

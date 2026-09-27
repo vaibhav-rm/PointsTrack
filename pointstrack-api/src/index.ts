@@ -4,7 +4,9 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import { sql } from 'drizzle-orm';
 import { env, useR2 } from './config/env.js';
+import { db } from './db/index.js';
 import { LOCAL_UPLOAD_DIR, getFileStream } from './lib/storage.js';
 import { notFoundHandler, errorHandler } from './middleware/error.js';
 import { authRouter } from './routes/auth.js';
@@ -101,8 +103,28 @@ if (useR2) {
   });
 }
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', storage: useR2 ? 'r2' : 'local', time: new Date().toISOString() });
+app.get('/health', async (_req, res) => {
+  // Deep check: SELECT 1 measures real DB reachability. The error is
+  // sanitized to one line (no stack/credentials) so operators can tell
+  // "empty DB / missing table" apart from "cannot connect" without logs.
+  const started = Date.now();
+  let database: { ok: boolean; latencyMs: number; error?: string };
+  try {
+    await db.execute(sql`SELECT 1`);
+    database = { ok: true, latencyMs: Date.now() - started };
+  } catch (err: any) {
+    database = {
+      ok: false,
+      latencyMs: Date.now() - started,
+      error: String(err?.message ?? err).split('\n')[0].slice(0, 200),
+    };
+  }
+  res.json({
+    status: database.ok ? 'ok' : 'degraded',
+    storage: useR2 ? 'r2' : 'local',
+    time: new Date().toISOString(),
+    database,
+  });
 });
 
 app.use('/auth', authLimiter, authRouter);

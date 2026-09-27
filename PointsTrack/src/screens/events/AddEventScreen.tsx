@@ -4,16 +4,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { api, uploadImage } from '../../lib/api';
+import { api, uploadImage, newIdempotencyKey } from '../../lib/api';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
 import { AppNavigationProp } from '../../navigation/types';
+import { useAuth } from '../../contexts/AuthContext';
 
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 
 const AddEventScreen = () => {
   const navigation = useNavigation<AppNavigationProp>();
+  const { profile } = useAuth();
   const { colorScheme } = useColorScheme();
   const [loading, setLoading] = useState(false);
   
@@ -59,8 +61,8 @@ const AddEventScreen = () => {
         points: Number(points),
         date,
         certificateUrl,
-        semester: 1, // Defaulting for now, should be from user input or profile
-      });
+        semester: profile?.semester ?? 1,
+      }, { idempotencyKey: newIdempotencyKey() });
 
       Alert.alert('Success', 'Event added successfully!');
       navigation.navigate('Dashboard');

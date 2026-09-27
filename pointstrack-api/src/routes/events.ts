@@ -279,10 +279,16 @@ eventsRouter.post(
     await getOwnedEvent(req.params.id, req.auth!.sub);
     const { usn, email } = parseBody(addVolunteerSchema, req);
 
+    // Normalize exactly like registration does (USN uppercased, email
+    // lowercased) so '1rv22cs001' / 'John@X.com' still resolve.
     const [student] = await db
       .select()
       .from(students)
-      .where(usn ? eq(students.usn, usn) : eq(students.email, email!));
+      .where(
+        usn
+          ? eq(students.usn, usn.trim().toUpperCase())
+          : eq(students.email, email!.trim().toLowerCase())
+      );
     if (!student) throw notFound('No student found with that USN/email');
     if (student.id === req.auth!.sub) throw badRequest('You already own this event');
 

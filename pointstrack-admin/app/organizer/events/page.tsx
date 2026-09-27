@@ -56,7 +56,7 @@ export default function EventsPage() {
     if (!confirm("Are you sure you want to delete this event? This will remove it from all students' feeds immediately.")) return;
     try {
       await api.del(`/events/${eventId}`);
-      setEvents(events.filter(e => e.id !== eventId));
+      setEvents((prev) => prev.filter(e => e.id !== eventId));
       setTotal((t) => Math.max(0, t - 1));
       toast.success("Event deleted");
     } catch (error) {

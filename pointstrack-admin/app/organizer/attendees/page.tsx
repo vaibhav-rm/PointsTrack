@@ -64,13 +64,15 @@ export default function AttendeesPage() {
     fetchAttendees()
   }, [fetchAttendees])
 
-  // Summary counts come from a GROUP BY query — no row downloads.
+  // Summary counts come from a GROUP BY query — no row downloads. Refreshed on
+  // mount and after each moderation action (NOT on every keystroke/render).
+  const [summaryTick, setSummaryTick] = useState(0)
   useEffect(() => {
     if (!user) return
     api.get<Summary>('/attendees/summary')
       .then(setSummary)
       .catch((e) => console.error('Error fetching summary:', e))
-  }, [user, attendees])
+  }, [user, summaryTick])
 
   const handleStatusUpdate = async (attendeeId: string, newStatus: string, newEngagement: string) => {
     setProcessingId(attendeeId);
@@ -84,8 +86,9 @@ export default function AttendeesPage() {
 
       // Optimistic update
       setAttendees(prev => prev.map(a =>
-        a.id === attendeeId ? { ...a, status: newStatus, engagement: newEngagement } : a
+        a.id === attendeeId ? { ...a, status: newStatus, engagement: newEngagement, checkInTimestamp: newStatus === 'checked-in' ? new Date().toISOString() : a.checkInTimestamp } : a
       ));
+      setSummaryTick((t) => t + 1);
       toast.success(newStatus === 'checked-in' ? "Points allotted successfully" : "Registration rejected");
     } catch (error) {
       console.error("Error updating attendee status:", error);
@@ -198,7 +201,7 @@ export default function AttendeesPage() {
                       {attendee.status === 'checked-in' ? (
                         <>
                           <CheckCircle className="w-5 h-5 text-emerald-400" />
-                          <span className="text-emerald-400 font-medium">Approved / 10 Pts</span>
+                          <span className="text-emerald-400 font-medium">Approved / {attendee.pointsAwarded ?? 10} Pts</span>
                         </>
                       ) : attendee.status === 'rejected' ? (
                         <>

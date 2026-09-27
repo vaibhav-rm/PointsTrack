@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq, and, isNull, gt } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, gt, or, lt } from 'drizzle-orm';
 import {
   db,
   accounts,
@@ -12,6 +12,7 @@ import {
   colleges,
   academicPolicies,
   studentAcademicRecords,
+  pointsLedger,
   refreshTokens,
 } from '../db/index.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
@@ -24,7 +25,7 @@ import {
 } from '../lib/jwt.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requireRole, invalidateAccountStatus } from '../middleware/auth.js';
 import { unauthorized, notFound, conflict } from '../lib/errors.js';
 
 export const authRouter = Router();
@@ -81,6 +82,18 @@ async function issueTokens(account: { id: string; email: string; role: Role }) {
     tokenHash: hash,
     expiresAt: refreshExpiry(),
   });
+  // Best-effort garbage collection: refresh rows are only ever flagged, never
+  // deleted, so sweep expired rows plus tokens revoked >30d ago on each issue.
+  // Indexed, fire-and-forget, never blocks login/refresh.
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  db.delete(refreshTokens)
+    .where(
+      or(
+        lt(refreshTokens.expiresAt, new Date()),
+        and(isNotNull(refreshTokens.revokedAt), lt(refreshTokens.revokedAt, cutoff))
+      )
+    )
+    .catch((err) => console.error('Refresh-token GC failed:', err));
   return { accessToken, refreshToken };
 }
 
@@ -457,11 +470,22 @@ authRouter.get(
 );
 
 // ---- Delete account ----
+// points_ledger.student_id is ON DELETE RESTRICT (audit protection), so the
+// user's own ledger rows are deleted explicitly first inside the same
+// transaction — otherwise every student with points history gets an FK 500.
+// Everything else cascades from accounts (students, organizers → events,
+// memberships, tokens). Ledger rows the user AWARDED to others survive with
+// organizer/awarded_by set to NULL.
 authRouter.delete(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    await db.delete(accounts).where(eq(accounts.id, req.auth!.sub));
+    const sub = req.auth!.sub;
+    await db.transaction(async (tx) => {
+      await tx.delete(pointsLedger).where(eq(pointsLedger.studentId, sub));
+      await tx.delete(accounts).where(eq(accounts.id, sub));
+    });
+    invalidateAccountStatus(sub);
     res.json({ success: true });
   })
 );

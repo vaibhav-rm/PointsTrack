@@ -1,7 +1,18 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { db, pointsLedger, students, studentAcademicRecords, academicPolicies } from '../db/index.js';
+import {
+  db,
+  pointsLedger,
+  students,
+  studentAcademicRecords,
+  academicPolicies,
+  eventsCatalog,
+  attendees,
+  clubs,
+  clubMemberships,
+  organizers,
+} from '../db/index.js';
 import { asyncHandler } from '../lib/async-handler.js';
 import { parseBody } from '../lib/validate.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -10,6 +21,71 @@ import { requireIdempotency } from '../middleware/idempotency.js';
 import { forbidden, notFound, badRequest } from '../lib/errors.js';
 
 export const pointsRouter = Router();
+
+// ---------------------------------------------------------------------------
+// Moderation scope: who may approve/reject/reverse a ledger entry?
+// An entry is moderatable by the caller when ANY of these hold:
+//   - caller is a platform admin
+//   - entry.organizerId / entry.event's organizer / entry.attendee's
+//     organizer is the caller (direct ownership chain)
+//   - entry.clubId is a club where the caller is an active member with the
+//     points.award permission (owner/admin/event_manager)
+//   - fallback for legacy self-tracked entries with no links: the student
+//     and the organizer belong to the SAME college (exact-name match,
+//     consistent with event eligibility). Cross-college moderation is denied.
+// ---------------------------------------------------------------------------
+async function canModerateEntry(
+  entry: { organizerId: string | null; eventId: string | null; attendeeId: string | null; clubId: string | null; studentId: string },
+  callerId: string,
+  callerRole: string
+): Promise<boolean> {
+  if (callerRole === 'admin') return true;
+  if (entry.organizerId && entry.organizerId === callerId) return true;
+
+  if (entry.eventId) {
+    const [event] = await db
+      .select({ organizerId: eventsCatalog.organizerId })
+      .from(eventsCatalog)
+      .where(eq(eventsCatalog.id, entry.eventId));
+    if (event?.organizerId === callerId) return true;
+  }
+
+  if (entry.attendeeId) {
+    const [att] = await db
+      .select({ organizerId: attendees.organizerId })
+      .from(attendees)
+      .where(eq(attendees.id, entry.attendeeId));
+    if (att?.organizerId === callerId) return true;
+  }
+
+  if (entry.clubId) {
+    const [row] = await db
+      .select({ role: clubMemberships.role })
+      .from(clubMemberships)
+      .where(and(eq(clubMemberships.clubId, entry.clubId), eq(clubMemberships.accountId, callerId), eq(clubMemberships.status, 'active')));
+    if (row && (row.role === 'owner' || row.role === 'admin' || row.role === 'event_manager')) return true;
+  }
+
+  // Shared-college fallback for unlinked self-tracked entries.
+  const [student] = await db
+    .select({ college: students.college })
+    .from(students)
+    .where(eq(students.id, entry.studentId));
+  if (!student?.college) return false;
+
+  const [legacy] = await db
+    .select({ college: organizers.college })
+    .from(organizers)
+    .where(eq(organizers.id, callerId));
+  if (legacy?.college && legacy.college === student.college) return true;
+
+  const memberClubs = await db
+    .select({ college: clubs.college })
+    .from(clubMemberships)
+    .innerJoin(clubs, eq(clubs.id, clubMemberships.clubId))
+    .where(and(eq(clubMemberships.accountId, callerId), eq(clubMemberships.status, 'active')));
+  return memberClubs.some((c) => c.college && c.college === student.college);
+}
 
 // ---- Current student's points ledger (the wallet) ----
 pointsRouter.get(
@@ -113,7 +189,7 @@ pointsRouter.post(
   })
 );
 
-// ---- Approve a pending self-tracked ledger entry (Organizer / Admin only) ----
+// ---- Approve a pending self-tracked ledger entry (scoped organizer/admin) ----
 pointsRouter.post(
   '/:id/approve',
   requireAuth,
@@ -129,6 +205,9 @@ pointsRouter.post(
     if (existing.ledgerStatus !== 'pending') {
       throw badRequest(`Only pending entries can be approved (current status: ${existing.ledgerStatus})`);
     }
+    if (!(await canModerateEntry(existing, req.auth!.sub, req.auth!.role))) {
+      throw forbidden('Not authorized to approve this entry');
+    }
 
     const [updated] = await db
       .update(pointsLedger)
@@ -143,7 +222,7 @@ pointsRouter.post(
   })
 );
 
-// ---- Reject a pending self-tracked ledger entry (Organizer / Admin only) ----
+// ---- Reject a pending self-tracked ledger entry (scoped organizer/admin) ----
 pointsRouter.post(
   '/:id/reject',
   requireAuth,
@@ -159,6 +238,9 @@ pointsRouter.post(
     if (existing.ledgerStatus !== 'pending') {
       throw badRequest(`Only pending entries can be rejected (current status: ${existing.ledgerStatus})`);
     }
+    if (!(await canModerateEntry(existing, req.auth!.sub, req.auth!.role))) {
+      throw forbidden('Not authorized to reject this entry');
+    }
 
     const [updated] = await db
       .update(pointsLedger)
@@ -173,7 +255,9 @@ pointsRouter.post(
   })
 );
 
-// ---- Update a self-tracked ledger entry (owner only) ----
+// ---- Update a self-tracked ledger entry (owner, pending drafts only) ----
+// Approved/event-awarded rows are immutable here: without this guard a
+// student could rewrite an approved award's points upward after approval.
 pointsRouter.put(
   '/:id',
   requireAuth,
@@ -186,6 +270,9 @@ pointsRouter.put(
       .where(eq(pointsLedger.id, req.params.id));
     if (!existing) throw notFound('Entry not found');
     if (existing.studentId !== req.auth!.sub) throw forbidden('Not your entry');
+    if (existing.ledgerStatus !== 'pending' || existing.attendeeId) {
+      throw badRequest('Only pending self-tracked entries can be edited');
+    }
 
     const [updated] = await db
       .update(pointsLedger)
@@ -196,7 +283,7 @@ pointsRouter.put(
   })
 );
 
-// ---- Delete a self-tracked ledger entry (owner only) ----
+// ---- Delete a self-tracked ledger entry (owner, pending drafts only) ----
 pointsRouter.delete(
   '/:id',
   requireAuth,
@@ -208,6 +295,9 @@ pointsRouter.delete(
       .where(eq(pointsLedger.id, req.params.id));
     if (!existing) throw notFound('Entry not found');
     if (existing.studentId !== req.auth!.sub) throw forbidden('Not your entry');
+    if (existing.ledgerStatus !== 'pending' || existing.attendeeId) {
+      throw badRequest('Only pending self-tracked entries can be deleted');
+    }
 
     await db.delete(pointsLedger).where(eq(pointsLedger.id, req.params.id));
     res.json({ success: true });
@@ -237,11 +327,18 @@ pointsRouter.post(
         .where(eq(pointsLedger.id, req.params.id));
 
       if (!existing) throw notFound('Ledger entry not found');
-      if (existing.organizerId && existing.organizerId !== req.auth!.sub) {
-        throw forbidden('Not authorized to reverse points for another club');
-      }
+      // Only approved awards can be reversed: reversing a pending entry
+      // would mint a COUNTED negative row against points that never counted.
       if (existing.ledgerType === 'reversal') throw badRequest('Cannot reverse a reversal entry');
-      if (existing.ledgerStatus === 'reversed') throw badRequest('Entry has already been reversed');
+      if (existing.ledgerStatus !== 'approved') {
+        throw badRequest(`Only approved entries can be reversed (current status: ${existing.ledgerStatus})`);
+      }
+      // Ownership chain (event/attendee/organizer links), club permission,
+      // shared college, or platform admin — a NULL organizerId no longer
+      // silently authorises every organizer.
+      if (!(await canModerateEntry(existing, req.auth!.sub, req.auth!.role))) {
+        throw forbidden('Not authorized to reverse this entry');
+      }
 
       // Check if a reversal already exists for this entry
       const [alreadyReversed] = await tx

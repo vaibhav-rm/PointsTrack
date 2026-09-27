@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
-import React from 'react';
+import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { AppNavigationProp } from '../../navigation/types';
@@ -11,7 +11,17 @@ const RecentActivityScreen = () => {
   const navigation = useNavigation<AppNavigationProp>();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { events, loading } = useEvents();
+  const { events, loading, refetch } = useEvents();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-background dark:bg-darkBackground" edges={['top', 'bottom']}>
@@ -28,7 +38,7 @@ const RecentActivityScreen = () => {
       <ScrollView
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}
         className="px-6 pt-4"
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => {}} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <Text className="text-sm font-pmedium text-textSecondary dark:text-gray-400 mb-6 uppercase tracking-widest">
           Your Tracked History

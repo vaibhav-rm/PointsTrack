@@ -23,7 +23,7 @@ const SemesterWrappedScreen = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const rows = await api.get<any[]>('/points');
+        const rows = await api.get<any[]>('/points?limit=1000');
         setWrapped(computeWrapped(rows, (userData as any) || {}));
       } catch (e) {
         console.error('Wrapped load error', e);
