@@ -354,6 +354,44 @@ export async function removeVolunteer(eventId: string, studentId: string): Promi
   await api.del(`/events/${eventId}/volunteers/${studentId}`)
 }
 
+// ---- Club roster (organizers add members; students see them verified) ----
+export interface ClubMember {
+  membershipId: string
+  accountId: string
+  role: string
+  status: string
+  joinedAt: string
+  studentName: string | null
+  studentEmail: string | null
+  usn: string | null
+}
+
+export async function fetchClubMembers(clubId: string, status?: string): Promise<ClubMember[]> {
+  const qs = status ? `?status=${status}` : ''
+  return api.get<ClubMember[]>(`/clubs/${clubId}/members${qs}`)
+}
+
+export async function inviteClubMember(
+  clubId: string,
+  email: string,
+  role: 'admin' | 'event_manager' | 'scanner' | 'member' = 'member'
+): Promise<unknown> {
+  return api.post(`/clubs/${clubId}/members/invite`, { email, role }, { idempotencyKey: newIdempotencyKey() })
+}
+
+export async function moderateClubMember(
+  clubId: string,
+  membershipId: string,
+  status: 'active' | 'rejected' | 'removed',
+  role?: string
+): Promise<unknown> {
+  return api.patch(`/clubs/${clubId}/members/${membershipId}`, { status, role })
+}
+
+export async function removeClubMember(clubId: string, membershipId: string): Promise<void> {
+  await api.del(`/clubs/${clubId}/members/${membershipId}`)
+}
+
 export async function logout(): Promise<void> {
   const refreshToken = getRefreshToken()
   try {

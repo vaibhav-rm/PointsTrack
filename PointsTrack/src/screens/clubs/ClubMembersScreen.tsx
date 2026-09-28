@@ -1,10 +1,10 @@
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import React, { useState, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { fetchClubMembers, moderateMember, type ClubMemberRow } from '../../lib/api';
+import { fetchClubMembers, moderateMember, inviteClubMember, type ClubMemberRow } from '../../lib/api';
 import type { AppNavigationProp, AppStackParamList } from '../../navigation/types';
 
 type ClubMembersRouteProp = RouteProp<AppStackParamList, 'ClubMembers'>;
@@ -22,6 +22,8 @@ const ClubMembersScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +68,25 @@ const ClubMembersScreen = () => {
   const pending = members.filter((m) => m.status === 'pending');
   const active = members.filter((m) => m.status === 'active');
 
+  const handleInvite = async () => {
+    const email = inviteEmail.trim();
+    if (!email) {
+      Alert.alert('Error', 'Enter the member’s email address.');
+      return;
+    }
+    setInviting(true);
+    try {
+      await inviteClubMember(clubId, email);
+      setInviteEmail('');
+      await load();
+      Alert.alert('Added', `${email} is now a verified member.`);
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Could not add member. They need an app account first.');
+    } finally {
+      setInviting(false);
+    }
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-background dark:bg-darkBackground" edges={['top', 'bottom']}>
       <View className="px-6 py-4 flex-row items-center border-b border-gray-100 dark:border-gray-800">
@@ -91,6 +112,29 @@ const ClubMembersScreen = () => {
           </View>
         ) : (
           <>
+            <Text className="text-sm font-pmedium text-textSecondary dark:text-gray-400 mb-3 uppercase tracking-widest">
+              Add Member
+            </Text>
+            <View className="flex-row items-center bg-white dark:bg-darkCard border border-gray-200 dark:border-gray-700 rounded-2xl px-4 py-2 mb-6">
+              <Ionicons name="mail-outline" size={18} color={isDark ? '#9CA3AF' : '#6B7280'} />
+              <TextInput
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                placeholder="Student email…"
+                placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                className="flex-1 ml-2 text-textPrimary dark:text-white font-pregular py-2"
+              />
+              <TouchableOpacity
+                onPress={handleInvite}
+                disabled={inviting}
+                className="bg-primary dark:bg-indigo-500 px-4 py-2 rounded-full ml-2"
+              >
+                <Text className="text-white font-pmedium text-xs">{inviting ? '…' : 'Add'}</Text>
+              </TouchableOpacity>
+            </View>
+
             <Text className="text-sm font-pmedium text-textSecondary dark:text-gray-400 mb-3 uppercase tracking-widest">
               Requests ({pending.length})
             </Text>

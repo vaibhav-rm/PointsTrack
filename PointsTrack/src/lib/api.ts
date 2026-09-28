@@ -378,6 +378,16 @@ export async function moderateMember(
   return api.patch(`/clubs/${clubId}/members/${membershipId}`, { status, role });
 }
 
+// Club managers add members by email (the account must exist — students sign
+// up in the app, then show up here as verified once added).
+export async function inviteClubMember(
+  clubId: string,
+  email: string,
+  role: 'admin' | 'event_manager' | 'scanner' | 'member' = 'member'
+): Promise<unknown> {
+  return api.post(`/clubs/${clubId}/members/invite`, { email, role }, { idempotencyKey: newIdempotencyKey() });
+}
+
 // ---- Organizer events (same API the web dashboard uses) ----
 export interface OrgEvent {
   id: string;

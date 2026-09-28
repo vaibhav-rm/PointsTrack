@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Menu, X, LogOut, Settings, LayoutDashboard, Calendar, LineChart, Users } from 'lucide-react'
+import { Menu, X, LogOut, Settings, LayoutDashboard, Calendar, LineChart, Users, UserPlus } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -40,8 +40,9 @@ export default function OrganizerLayout({
   const navItems = [
     { href: '/organizer/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/organizer/events', label: 'Events', icon: Calendar },
-    { href: '/organizer/analytics', label: 'Analytics', icon: LineChart },
     { href: '/organizer/attendees', label: 'Attendees', icon: Users },
+    { href: '/organizer/members', label: 'Members', icon: UserPlus },
+    { href: '/organizer/analytics', label: 'Analytics', icon: LineChart },
   ]
 
   // Auth + onboarding pages live under /organizer too, but render without the
