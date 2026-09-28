@@ -91,7 +91,9 @@ const AppStack = () => {
         name="RecentActivity"
         component={RecentActivityScreen}
         options={{
-          tabBarStyle: { display: 'none' },
+          // Full-page history, but the tab bar stays visible so users are
+          // never stranded without navigation. Button stays hidden to keep
+          // the bar at 5 destinations.
           tabBarItemStyle: { display: 'none' },
           tabBarButton: () => null, // Hide from tab bar visually
         }}
@@ -156,7 +158,7 @@ const AppStack = () => {
         name="SemesterWrapped"
         component={SemesterWrappedScreen}
         options={{
-          tabBarStyle: { display: 'none' },
+          // Same as RecentActivity: keep the tab bar visible, hide the button.
           tabBarItemStyle: { display: 'none' },
           tabBarButton: () => null, // Hide from tab bar visually
         }}
